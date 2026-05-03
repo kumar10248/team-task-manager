@@ -26,6 +26,11 @@ exports.createTask = async (req, res) => {
 
     const { title, description, assignedTo, priority, dueDate, tags } = req.body;
 
+    // Validate required fields
+    if (!title || !title.trim()) {
+      return res.status(400).json({ success: false, message: 'Task title is required' });
+    }
+
     // Validate assignee is a project member
     if (assignedTo) {
       const assigneeMembership = await getMembership(projectId, assignedTo);
@@ -37,14 +42,14 @@ exports.createTask = async (req, res) => {
     }
 
     const task = await Task.create({
-      title,
-      description,
+      title: title.trim(),
+      description: description || '',
       project: projectId,
       createdBy: req.user._id,
       assignedTo: assignedTo || null,
       priority,
       dueDate,
-      tags,
+      tags
     });
 
     const populated = await Task.findById(task._id)
@@ -53,11 +58,12 @@ exports.createTask = async (req, res) => {
 
     res.status(201).json({ success: true, task: populated });
   } catch (err) {
+    console.error('Create task error:', err);
     if (err.name === 'ValidationError') {
       const messages = Object.values(err.errors).map((e) => e.message);
       return res.status(400).json({ success: false, message: messages.join(', ') });
     }
-    res.status(500).json({ success: false, message: 'Failed to create task' });
+    res.status(500).json({ success: false, message: err.message || 'Failed to create task' });
   }
 };
 

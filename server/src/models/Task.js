@@ -88,7 +88,7 @@ taskSchema.virtual('isOverdue').get(function () {
 });
 
 // Auto-set completedAt when status transitions to 'done'
-taskSchema.pre('save', function (next) {
+taskSchema.pre('save', function () {
   if (this.isModified('status')) {
     if (this.status === 'done' && !this.completedAt) {
       this.completedAt = new Date();
@@ -96,7 +96,6 @@ taskSchema.pre('save', function (next) {
       this.completedAt = null;
     }
   }
-  next();
 });
 
 // Indexes

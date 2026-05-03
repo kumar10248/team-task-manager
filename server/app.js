@@ -19,9 +19,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
  
 // ─── Routes ──────────────────────────────────────────────────────────────────
-app.use('/api/v1/auth', authRoutes);
-app.use('/api/v1/projects', projectRoutes);
-app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/projects', projectRoutes);
+app.use('/api/dashboard', dashboardRoutes);
  
 // Health check
 app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toLocaleString() }));
