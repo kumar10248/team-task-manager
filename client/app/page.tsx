@@ -8,11 +8,11 @@ interface Feature { icon: LucideIcon; title: string; desc: string }
 
 const features: Feature[] = [
   { icon: Layers,       title: 'Kanban Boards',    desc: 'Visual task boards with To Do, In Progress, and Done columns. Drag-and-drop clarity at a glance.' },
-  { icon: Users,        title: 'Team Roles',        desc: 'Admins manage everything. Members update their own tasks. Role-based access keeps projects clean.' },
-  { icon: BarChart3,    title: 'Live Dashboard',    desc: 'Real-time stats on task completion, overdue items, and workload per team member.' },
-  { icon: Shield,       title: 'Secure Auth',       desc: 'JWT-based authentication with encrypted passwords. Your data stays yours.' },
-  { icon: Clock,        title: 'Due Date Tracking', desc: 'Never miss a deadline. Overdue tasks are surfaced automatically across all views.' },
-  { icon: CheckCircle2, title: 'Priority Levels',   desc: 'Low, medium, high, or urgent — colour-coded priorities so teams always know what matters most.' },
+  { icon: Users,        title: 'Team Roles',       desc: 'Admins manage everything. Members update their own tasks. Role-based access keeps projects clean.' },
+  { icon: BarChart3,    title: 'Live Dashboard',   desc: 'Real-time stats on task completion, overdue items, and workload per team member.' },
+  { icon: Shield,       title: 'Secure Auth',      desc: 'JWT-based authentication with encrypted passwords. Your data stays yours.' },
+  { icon: Clock,        title: 'Due Date Tracking',desc: 'Never miss a deadline. Overdue tasks are surfaced automatically across all views.' },
+  { icon: CheckCircle2, title: 'Priority Levels',  desc: 'Low, medium, high, or urgent — color-coded priorities so teams always know what matters most.' },
 ];
 
 const stats: Array<{ value: string; label: string }> = [
@@ -23,9 +23,9 @@ const stats: Array<{ value: string; label: string }> = [
 ];
 
 const steps = [
-  { step: '01', title: 'Create a project', desc: 'You become the Admin. Set a name, colour, and description.' },
-  { step: '02', title: 'Invite your team',  desc: 'Add members by email. Assign Admin or Member roles.' },
-  { step: '03', title: 'Ship tasks',        desc: 'Create tasks, set priorities, assign people, track progress.' },
+  { step: '01', title: 'Create a project', desc: 'You become the Admin. Set a name, color, and description.' },
+  { step: '02', title: 'Invite your team', desc: 'Add members by email. Assign Admin or Member roles.' },
+  { step: '03', title: 'Ship tasks',       desc: 'Create tasks, set priorities, assign people, track progress.' },
 ];
 
 export default function HomePage() {
@@ -39,35 +39,39 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div style={{ minHeight:'100vh', background:'var(--bg-base)', overflowX:'hidden' }}>
+    <div style={{ minHeight:'100vh', position: 'relative', overflowX:'hidden' }}>
+
+      {/* ── Dynamic Background Orbs ── */}
+      <div style={{ position:'absolute', top:'10%', left:'15%', width:'40vw', height:'40vw', background:'radial-gradient(circle, var(--accent-glow) 0%, transparent 70%)', filter:'blur(60px)', opacity:0.6, zIndex:-1, pointerEvents:'none', animation:'float 8s ease-in-out infinite' }} />
+      <div style={{ position:'absolute', top:'40%', right:'5%', width:'35vw', height:'35vw', background:'radial-gradient(circle, rgba(192, 132, 252, 0.2) 0%, transparent 70%)', filter:'blur(60px)', opacity:0.5, zIndex:-1, pointerEvents:'none', animation:'float 10s ease-in-out infinite reverse' }} />
 
       {/* ── Navbar ── */}
       <nav style={{
         position:'fixed', top:0, left:0, right:0, zIndex:100,
-        padding:'0 48px', height:60, display:'flex', alignItems:'center', justifyContent:'space-between',
-        background: scrolled ? 'rgba(13,13,15,0.92)' : 'transparent',
-        backdropFilter: scrolled ? 'blur(12px)' : 'none',
+        padding:'0 48px', height:70, display:'flex', alignItems:'center', justifyContent:'space-between',
+        background: scrolled ? 'var(--bg-surface)' : 'transparent',
+        backdropFilter: scrolled ? 'blur(20px)' : 'none',
         borderBottom: scrolled ? '1px solid var(--bg-border)' : '1px solid transparent',
-        transition:'all 0.3s',
+        transition:'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
       }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <div style={{ width:28, height:28, background:'var(--amber)', borderRadius:7, display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <Zap size={15} color="#0d0d0f" fill="#0d0d0f" />
+          <div style={{ width:32, height:32, background:'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 0 15px var(--accent-glow)' }}>
+            <Zap size={16} color="#fff" fill="#fff" />
           </div>
-          <span style={{ fontFamily:'Fraunces, serif', fontSize:17, fontWeight:600, color:'var(--text-primary)' }}>TaskForge</span>
+          <span style={{ fontFamily:'Fraunces, serif', fontSize:20, fontWeight:600, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>TaskForge</span>
         </div>
-        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:16 }}>
           {user ? (
             <Link href="/dashboard" style={{ textDecoration:'none' }}>
-              <button className="btn-primary" style={{ padding:'7px 18px' }}>Go to Dashboard <ArrowRight size={13} /></button>
+              <button className="btn-primary" style={{ padding:'8px 20px' }}>Go to Dashboard <ArrowRight size={14} /></button>
             </Link>
           ) : (
             <>
               <Link href="/login" style={{ textDecoration:'none' }}>
-                <button className="btn-ghost" style={{ padding:'7px 16px' }}>Sign In</button>
+                <button className="btn-ghost" style={{ padding:'8px 20px', border:'none', background:'transparent' }}>Sign In</button>
               </Link>
               <Link href="/signup" style={{ textDecoration:'none' }}>
-                <button className="btn-primary" style={{ padding:'7px 18px' }}>Get Started</button>
+                <button className="btn-primary" style={{ padding:'8px 24px' }}>Get Started</button>
               </Link>
             </>
           )}
@@ -75,115 +79,108 @@ export default function HomePage() {
       </nav>
 
       {/* ── Hero ── */}
-      <section style={{ minHeight:'100vh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'120px 24px 80px', textAlign:'center', position:'relative', overflow:'hidden' }}>
-        <div style={{ position:'absolute', top:'40%', left:'50%', transform:'translate(-50%,-50%)', width:700, height:500, background:'radial-gradient(ellipse, rgba(245,158,11,0.07) 0%, transparent 70%)', pointerEvents:'none' }} />
-        <div style={{ position:'absolute', inset:0, backgroundImage:'linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)', backgroundSize:'60px 60px', pointerEvents:'none' }} />
-
-        <div className="animate-slide-up" style={{ position:'relative', zIndex:1 }}>
-          <div style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.2)', borderRadius:100, padding:'5px 16px', marginBottom:32 }}>
-            <div style={{ width:6, height:6, borderRadius:'50%', background:'var(--amber)', animation:'pulse 2s ease-in-out infinite' }} />
-            <span style={{ fontFamily:'DM Mono, monospace', fontSize:11, letterSpacing:'0.08em', color:'var(--amber)', textTransform:'uppercase' }}>Team Collaboration Tool</span>
+      <section style={{ minHeight:'100vh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'140px 24px 80px', textAlign:'center', position:'relative' }}>
+        
+        <div className="animate-slide-up" style={{ position:'relative', zIndex:1, display:'flex', flexDirection:'column', alignItems:'center' }}>
+          <div style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.03)', backdropFilter:'blur(10px)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:100, padding:'6px 20px', marginBottom:32, boxShadow:'0 4px 20px rgba(0,0,0,0.2)' }}>
+            <div style={{ width:6, height:6, borderRadius:'50%', background:'var(--accent-secondary)', animation:'pulseGlow 2s ease-in-out infinite' }} />
+            <span style={{ fontFamily:'Outfit, sans-serif', fontSize:12, fontWeight:500, letterSpacing:'0.06em', color:'var(--text-primary)', textTransform:'uppercase' }}>Introducing TaskForge 2.0</span>
           </div>
 
-          <h1 style={{ fontFamily:'Fraunces, serif', fontSize:'clamp(42px, 7vw, 80px)', fontWeight:600, color:'var(--text-primary)', lineHeight:1.05, marginBottom:24, maxWidth:800 }}>
+          <h1 style={{ fontFamily:'Fraunces, serif', fontSize:'clamp(46px, 7vw, 90px)', fontWeight:400, color:'var(--text-primary)', lineHeight:1.05, marginBottom:28, maxWidth:860, letterSpacing:'-0.02em' }}>
             Where teams turn{' '}
-            <em style={{ color:'var(--amber)', fontStyle:'italic' }}>chaos</em>{' '}
+            <em style={{ color:'var(--accent-secondary)', fontStyle:'italic', paddingRight:'6px' }}>chaos</em>{' '}
             into execution
           </h1>
 
-          <p style={{ fontSize:17, color:'var(--text-secondary)', maxWidth:520, margin:'0 auto 48px', lineHeight:1.7 }}>
-            Manage projects, assign tasks, and track progress — all in one focused workspace built for modern teams.
+          <p style={{ fontSize:18, color:'var(--text-secondary)', maxWidth:560, margin:'0 auto 48px', lineHeight:1.6, fontWeight:300 }}>
+            Manage projects, assign tasks, and track progress — all in one breathtakingly fast, focused workspace built for modern teams.
           </p>
 
-          <div style={{ display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap' }}>
+          <div style={{ display:'flex', gap:16, justifyContent:'center', flexWrap:'wrap' }}>
             <Link href="/signup" style={{ textDecoration:'none' }}>
-              <button className="btn-primary" style={{ padding:'12px 28px', fontSize:12 }}>
-                Start for free <ArrowRight size={14} />
+              <button className="btn-primary" style={{ padding:'14px 32px', fontSize:14 }}>
+                Start for free <ArrowRight size={16} />
               </button>
             </Link>
             <Link href="/login" style={{ textDecoration:'none' }}>
-              <button className="btn-ghost" style={{ padding:'12px 28px', fontSize:12 }}>Sign in →</button>
+              <button className="btn-ghost" style={{ padding:'14px 32px', fontSize:14 }}>Sign in →</button>
             </Link>
-          </div>
-
-          <div style={{ marginTop:72, display:'flex', flexDirection:'column', alignItems:'center', gap:6, opacity:0.4 }}>
-            <div style={{ width:1, height:40, background:'linear-gradient(to bottom, transparent, var(--text-muted))' }} />
-            <span style={{ fontFamily:'DM Mono, monospace', fontSize:10, letterSpacing:'0.12em', color:'var(--text-muted)', textTransform:'uppercase' }}>Scroll</span>
           </div>
         </div>
       </section>
 
       {/* ── Stats bar ── */}
-      <section style={{ borderTop:'1px solid var(--bg-border)', borderBottom:'1px solid var(--bg-border)', padding:'32px 48px' }}>
-        <div style={{ maxWidth:900, margin:'0 auto', display:'grid', gridTemplateColumns:'repeat(4, 1fr)' }}>
+      <section style={{ borderTop:'1px solid var(--bg-border)', borderBottom:'1px solid var(--bg-border)', padding:'40px 48px', background:'rgba(255,255,255,0.01)', backdropFilter:'blur(10px)' }}>
+        <div style={{ maxWidth:1000, margin:'0 auto', display:'grid', gridTemplateColumns:'repeat(4, 1fr)' }}>
           {stats.map(({ value, label }, i) => (
-            <div key={label} style={{ textAlign:'center', padding:'8px 0', borderRight: i < 3 ? '1px solid var(--bg-border)' : 'none' }}>
-              <div style={{ fontFamily:'Fraunces, serif', fontSize:44, fontWeight:600, color:'var(--amber)', lineHeight:1 }}>{value}</div>
-              <div style={{ fontFamily:'DM Mono, monospace', fontSize:11, letterSpacing:'0.08em', color:'var(--text-muted)', textTransform:'uppercase', marginTop:6 }}>{label}</div>
+            <div key={label} style={{ textAlign:'center', padding:'12px 0', borderRight: i < 3 ? '1px solid var(--bg-border)' : 'none' }}>
+              <div style={{ fontFamily:'Fraunces, serif', fontSize:48, fontWeight:300, color:'var(--accent-primary)', lineHeight:1, marginBottom:10 }}>{value}</div>
+              <div style={{ fontFamily:'DM Mono, monospace', fontSize:12, letterSpacing:'0.06em', color:'var(--text-muted)', textTransform:'uppercase' }}>{label}</div>
             </div>
           ))}
         </div>
       </section>
 
       {/* ── Dashboard mockup ── */}
-      <section style={{ padding:'100px 48px', maxWidth:1100, margin:'0 auto' }}>
-        <div style={{ textAlign:'center', marginBottom:60 }}>
-          <p style={{ fontFamily:'DM Mono, monospace', fontSize:11, color:'var(--amber)', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:12 }}>Interface</p>
-          <h2 style={{ fontFamily:'Fraunces, serif', fontSize:'clamp(28px, 4vw, 44px)', fontWeight:600, color:'var(--text-primary)' }}>Built for focus</h2>
+      <section style={{ padding:'120px 48px', maxWidth:1200, margin:'0 auto' }}>
+        <div style={{ textAlign:'center', marginBottom:80 }}>
+          <p style={{ fontFamily:'Outfit, sans-serif', fontSize:13, fontWeight:500, color:'var(--accent-primary)', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:16 }}>The Interface</p>
+          <h2 style={{ fontFamily:'Fraunces, serif', fontSize:'clamp(32px, 4vw, 56px)', fontWeight:400, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>Immersive focus.</h2>
         </div>
 
-        <div style={{ background:'var(--bg-surface)', border:'1px solid var(--bg-border)', borderRadius:16, overflow:'hidden', boxShadow:'0 40px 120px rgba(0,0,0,0.5)' }}>
+        <div className="glass-panel" style={{ overflow:'hidden', padding:0, border:'1px solid rgba(255,255,255,0.15)', transform:'perspective(1000px) rotateX(2deg)', boxShadow:'0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05) inset' }}>
           {/* Window chrome */}
-          <div style={{ padding:'14px 20px', borderBottom:'1px solid var(--bg-border)', display:'flex', alignItems:'center', gap:8 }}>
-            {(['#ef4444','#f59e0b','#22c55e'] as const).map((c) => (
-              <div key={c} style={{ width:12, height:12, borderRadius:'50%', background:c, opacity:0.7 }} />
+          <div style={{ padding:'16px 24px', borderBottom:'1px solid var(--bg-border)', display:'flex', alignItems:'center', gap:10, background:'rgba(255,255,255,0.02)' }}>
+            {(['#ff5f56','#ffbd2e','#27c93f'] as const).map((c) => (
+              <div key={c} style={{ width:12, height:12, borderRadius:'50%', background:c, boxShadow:`0 0 4px ${c}` }} />
             ))}
-            <div style={{ flex:1, margin:'0 12px', background:'var(--bg-elevated)', borderRadius:6, height:24, display:'flex', alignItems:'center', paddingLeft:12 }}>
-              <span style={{ fontFamily:'DM Mono, monospace', fontSize:10, color:'var(--text-muted)' }}>taskforge.app/dashboard</span>
+            <div style={{ flex:1, margin:'0 16px', background:'rgba(0,0,0,0.2)', borderRadius:8, height:28, display:'flex', alignItems:'center', paddingLeft:16, border:'1px solid rgba(255,255,255,0.05)' }}>
+              <span style={{ fontFamily:'DM Mono, monospace', fontSize:11, color:'var(--text-muted)' }}>taskforge.app/dashboard</span>
             </div>
           </div>
 
-          <div style={{ display:'flex' }}>
+          <div style={{ display:'flex', background:'rgba(0,0,0,0.1)' }}>
             {/* Fake sidebar */}
-            <div style={{ width:180, borderRight:'1px solid var(--bg-border)', padding:'20px 12px', flexShrink:0 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', marginBottom:16 }}>
-                <div style={{ width:22, height:22, background:'var(--amber)', borderRadius:5, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                  <Zap size={12} color="#0d0d0f" fill="#0d0d0f" />
+            <div style={{ width:220, borderRight:'1px solid var(--bg-border)', padding:'24px 16px', flexShrink:0, background:'rgba(255,255,255,0.01)' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:12, padding:'8px 12px', marginBottom:24 }}>
+                <div style={{ width:24, height:24, background:'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <Zap size={14} color="#fff" fill="#fff" />
                 </div>
-                <span style={{ fontFamily:'Fraunces, serif', fontSize:13, color:'var(--text-primary)' }}>TaskForge</span>
+                <span style={{ fontFamily:'Fraunces, serif', fontSize:16, color:'var(--text-primary)' }}>TaskForge</span>
               </div>
               {(['Dashboard', 'Projects', 'My Tasks', 'Settings'] as const).map((label, i) => (
-                <div key={label} style={{ padding:'7px 12px', borderRadius:6, marginBottom:2, background: i===0 ? 'rgba(245,158,11,0.1)' : 'transparent', borderLeft:`2px solid ${i===0 ? 'var(--amber)' : 'transparent'}` }}>
-                  <span style={{ fontFamily:'DM Mono, monospace', fontSize:11, color: i===0 ? 'var(--amber)' : 'var(--text-muted)' }}>{label}</span>
+                <div key={label} style={{ padding:'10px 14px', borderRadius:8, marginBottom:4, background: i===0 ? 'rgba(129, 140, 248, 0.15)' : 'transparent', borderLeft:`2px solid ${i===0 ? 'var(--accent-primary)' : 'transparent'}`, display:'flex', alignItems:'center' }}>
+                  <span style={{ fontFamily:'Outfit, sans-serif', fontSize:13, fontWeight: i===0 ? 500:400, color: i===0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>{label}</span>
                 </div>
               ))}
             </div>
 
             {/* Fake content */}
-            <div style={{ flex:1, padding:24 }}>
-              <div style={{ marginBottom:20 }}>
-                <div style={{ height:10, width:80, background:'var(--bg-border)', borderRadius:4, marginBottom:8 }} />
-                <div style={{ height:18, width:200, background:'var(--bg-elevated)', borderRadius:4 }} />
+            <div style={{ flex:1, padding:32 }}>
+              <div style={{ marginBottom:28 }}>
+                <div style={{ height:12, width:100, background:'var(--bg-border)', borderRadius:6, marginBottom:12 }} />
+                <div style={{ height:24, width:240, background:'rgba(255,255,255,0.05)', borderRadius:6 }} />
               </div>
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:12, marginBottom:20 }}>
-                {(['var(--amber)','#4ade80','#60a5fa','#f87171'] as const).map((color, i) => (
-                  <div key={i} style={{ background:'var(--bg-elevated)', border:'1px solid var(--bg-border)', borderRadius:8, padding:14 }}>
-                    <div style={{ height:8, width:50, background:'var(--bg-border)', borderRadius:4, marginBottom:10 }} />
-                    <div style={{ fontFamily:'Fraunces, serif', fontSize:26, color, lineHeight:1 }}>{[24,18,4,2][i]}</div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:16, marginBottom:32 }}>
+                {(['var(--accent-primary)','#4ade80','#60a5fa','#f87171'] as const).map((color, i) => (
+                  <div key={i} className="glass-panel-elevated" style={{ padding:20 }}>
+                    <div style={{ height:8, width:60, background:'var(--bg-border)', borderRadius:4, marginBottom:16 }} />
+                    <div style={{ fontFamily:'Fraunces, serif', fontSize:32, fontWeight:300, color, lineHeight:1 }}>{[24,18,4,2][i]}</div>
                   </div>
                 ))}
               </div>
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:12 }}>
-                {([['To Do',['Design mockups','Write tests'],'var(--text-muted)'],['In Progress',['API integration','Auth flow'],'#60a5fa'],['Done',['DB schema'],'#4ade80']] as Array<[string, string[], string]>).map(([col, items, color]) => (
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:16 }}>
+                {([['To Do',['Design mockups','Write tests'],'var(--text-muted)'],['In Progress',['API integration','Auth flow'],'var(--accent-primary)'],['Done',['DB schema'],'#4ade80']] as Array<[string, string[], string]>).map(([col, items, color]) => (
                   <div key={col}>
-                    <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10 }}>
-                      <div style={{ width:7, height:7, borderRadius:'50%', background:color }} />
-                      <span style={{ fontFamily:'DM Mono, monospace', fontSize:10, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.06em' }}>{col}</span>
+                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16 }}>
+                      <div style={{ width:8, height:8, borderRadius:'50%', background:color, boxShadow:`0 0 8px ${color}` }} />
+                      <span style={{ fontFamily:'Outfit, sans-serif', fontSize:12, fontWeight:500, color:'var(--text-secondary)', textTransform:'uppercase', letterSpacing:'0.04em' }}>{col}</span>
                     </div>
                     {items.map((item) => (
-                      <div key={item} style={{ background:'var(--bg-elevated)', border:'1px solid var(--bg-border)', borderRadius:6, padding:'10px 12px', marginBottom:8 }}>
-                        <div style={{ height:8, width:'80%', background:'var(--bg-border)', borderRadius:3, marginBottom:8 }} />
-                        <div style={{ fontFamily:'DM Mono, monospace', fontSize:10, color:'var(--text-secondary)' }}>{item}</div>
+                      <div key={item} className="glass-panel-elevated" style={{ padding:'14px 16px', marginBottom:12 }}>
+                        <div style={{ height:8, width:'70%', background:'var(--bg-border)', borderRadius:4, marginBottom:12 }} />
+                        <div style={{ fontFamily:'Outfit, sans-serif', fontSize:13, color:'var(--text-secondary)' }}>{item}</div>
                       </div>
                     ))}
                   </div>
@@ -195,40 +192,39 @@ export default function HomePage() {
       </section>
 
       {/* ── Features ── */}
-      <section style={{ padding:'80px 48px 100px', maxWidth:1100, margin:'0 auto' }}>
-        <div style={{ textAlign:'center', marginBottom:60 }}>
-          <p style={{ fontFamily:'DM Mono, monospace', fontSize:11, color:'var(--amber)', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:12 }}>Features</p>
-          <h2 style={{ fontFamily:'Fraunces, serif', fontSize:'clamp(28px, 4vw, 44px)', fontWeight:600, color:'var(--text-primary)' }}>Everything your team needs</h2>
+      <section style={{ padding:'80px 48px 120px', maxWidth:1200, margin:'0 auto', position:'relative' }}>
+        <div style={{ textAlign:'center', marginBottom:80 }}>
+          <p style={{ fontFamily:'Outfit, sans-serif', fontSize:13, fontWeight:500, color:'var(--accent-primary)', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:16 }}>Powerful Features</p>
+          <h2 style={{ fontFamily:'Fraunces, serif', fontSize:'clamp(32px, 4vw, 56px)', fontWeight:400, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>Crafted for perfection.</h2>
         </div>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:1, border:'1px solid var(--bg-border)', borderRadius:14, overflow:'hidden' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(320px, 1fr))', gap:24 }}>
           {features.map(({ icon: Icon, title, desc }, i) => (
-            <div key={title}
-              style={{ padding:32, background:'var(--bg-surface)', borderRight:(i+1)%2===0?'none':'1px solid var(--bg-border)', borderBottom:i<4?'1px solid var(--bg-border)':'none', transition:'background 0.2s' }}
-              onMouseEnter={(e) => (e.currentTarget.style.background='var(--bg-elevated)')}
-              onMouseLeave={(e) => (e.currentTarget.style.background='var(--bg-surface)')}>
-              <div style={{ width:36, height:36, borderRadius:9, background:'rgba(245,158,11,0.1)', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:16 }}>
-                <Icon size={17} color="var(--amber)" />
+            <div key={title} className="glass-panel" style={{ padding:36, transition:'all 0.3s ease', cursor:'default' }} onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)' }} onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = 'var(--bg-border)' }}>
+              <div style={{ width:48, height:48, borderRadius:12, background:'rgba(255,255,255,0.05)', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:20, border:'1px solid rgba(255,255,255,0.05)' }}>
+                <Icon size={22} color="var(--accent-primary)" />
               </div>
-              <h3 style={{ fontFamily:'Fraunces, serif', fontSize:17, fontWeight:600, color:'var(--text-primary)', marginBottom:8 }}>{title}</h3>
-              <p style={{ fontSize:13, color:'var(--text-secondary)', lineHeight:1.7 }}>{desc}</p>
+              <h3 style={{ fontFamily:'Fraunces, serif', fontSize:22, fontWeight:400, color:'var(--text-primary)', marginBottom:12 }}>{title}</h3>
+              <p style={{ fontFamily:'Outfit, sans-serif', fontSize:15, color:'var(--text-secondary)', lineHeight:1.6, fontWeight:300 }}>{desc}</p>
             </div>
           ))}
         </div>
       </section>
 
       {/* ── How it works ── */}
-      <section style={{ padding:'80px 48px', background:'var(--bg-surface)', borderTop:'1px solid var(--bg-border)', borderBottom:'1px solid var(--bg-border)' }}>
-        <div style={{ maxWidth:900, margin:'0 auto' }}>
-          <div style={{ textAlign:'center', marginBottom:60 }}>
-            <p style={{ fontFamily:'DM Mono, monospace', fontSize:11, color:'var(--amber)', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:12 }}>Workflow</p>
-            <h2 style={{ fontFamily:'Fraunces, serif', fontSize:'clamp(28px, 4vw, 44px)', fontWeight:600, color:'var(--text-primary)' }}>Up and running in 3 steps</h2>
+      <section style={{ padding:'100px 48px', position:'relative' }}>
+        <div style={{ position:'absolute', inset:0, background:'rgba(255,255,255,0.01)', backdropFilter:'blur(20px)', borderTop:'1px solid var(--bg-border)', borderBottom:'1px solid var(--bg-border)', zIndex:-1 }} />
+        <div style={{ maxWidth:1000, margin:'0 auto' }}>
+          <div style={{ textAlign:'center', marginBottom:80 }}>
+            <p style={{ fontFamily:'Outfit, sans-serif', fontSize:13, fontWeight:500, color:'var(--accent-secondary)', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:16 }}>Workflow</p>
+            <h2 style={{ fontFamily:'Fraunces, serif', fontSize:'clamp(32px, 4vw, 56px)', fontWeight:400, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>Three steps to clarity.</h2>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:32 }}>
             {steps.map(({ step, title, desc }, i) => (
-              <div key={step} style={{ padding:'32px 36px', borderRight: i<2 ? '1px solid var(--bg-border)' : 'none' }}>
-                <div style={{ fontFamily:'Fraunces, serif', fontSize:64, fontWeight:600, color:'rgba(245,158,11,0.08)', lineHeight:1, marginBottom:16, userSelect:'none' }}>{step}</div>
-                <h3 style={{ fontFamily:'Fraunces, serif', fontSize:18, color:'var(--text-primary)', marginBottom:10 }}>{title}</h3>
-                <p style={{ fontSize:13, color:'var(--text-secondary)', lineHeight:1.7 }}>{desc}</p>
+              <div key={step} style={{ padding:'16px', position:'relative' }}>
+                {i < 2 && <div style={{ position:'absolute', top:40, right:-16, width:32, height:1, background:'var(--bg-border)' }} />}
+                <div style={{ fontFamily:'Fraunces, serif', fontSize:72, fontWeight:300, color:'rgba(255,255,255,0.05)', lineHeight:1, marginBottom:20, userSelect:'none' }}>{step}</div>
+                <h3 style={{ fontFamily:'Fraunces, serif', fontSize:22, fontWeight:400, color:'var(--text-primary)', marginBottom:12 }}>{title}</h3>
+                <p style={{ fontFamily:'Outfit, sans-serif', fontSize:15, color:'var(--text-secondary)', lineHeight:1.6, fontWeight:300 }}>{desc}</p>
               </div>
             ))}
           </div>
@@ -236,42 +232,40 @@ export default function HomePage() {
       </section>
 
       {/* ── CTA ── */}
-      <section style={{ padding:'120px 24px', textAlign:'center', position:'relative', overflow:'hidden' }}>
-        <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', width:600, height:400, background:'radial-gradient(ellipse, rgba(245,158,11,0.06) 0%, transparent 70%)', pointerEvents:'none' }} />
-        <div style={{ position:'relative', zIndex:1 }}>
-          <h2 style={{ fontFamily:'Fraunces, serif', fontSize:'clamp(32px, 5vw, 56px)', fontWeight:600, color:'var(--text-primary)', marginBottom:16, maxWidth:600, margin:'0 auto 16px' }}>
-            Ready to forge your first project?
+      <section style={{ padding:'140px 24px', textAlign:'center', position:'relative', overflow:'hidden' }}>
+        <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', width:'50vw', height:'50vw', background:'radial-gradient(circle, var(--accent-glow) 0%, transparent 50%)', filter:'blur(80px)', pointerEvents:'none', opacity:0.6 }} />
+        <div style={{ position:'relative', zIndex:1, display:'flex', flexDirection:'column', alignItems:'center' }}>
+          <h2 style={{ fontFamily:'Fraunces, serif', fontSize:'clamp(40px, 6vw, 64px)', fontWeight:400, color:'var(--text-primary)', marginBottom:20, maxWidth:700, margin:'0 auto 20px', letterSpacing:'-0.02em', lineHeight:1.1 }}>
+            Ready to experience clarity?
           </h2>
-          <p style={{ color:'var(--text-secondary)', fontSize:15, marginBottom:40, fontFamily:'DM Mono, monospace' }}>Free to start. No credit card required.</p>
+          <p style={{ color:'var(--text-secondary)', fontSize:18, marginBottom:48, fontFamily:'Outfit, sans-serif', fontWeight:300 }}>Start today. No credit card required.</p>
           <Link href="/signup" style={{ textDecoration:'none' }}>
-            <button className="btn-primary" style={{ padding:'14px 36px', fontSize:13 }}>
-              Create free account <ArrowRight size={15} />
+            <button className="btn-primary" style={{ padding:'16px 40px', fontSize:15 }}>
+              Create free account <ArrowRight size={18} />
             </button>
           </Link>
         </div>
       </section>
 
       {/* ── Footer ── */}
-      <footer style={{ borderTop:'1px solid var(--bg-border)', padding:'28px 48px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <div style={{ width:20, height:20, background:'var(--amber)', borderRadius:5, display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <Zap size={11} color="#0d0d0f" fill="#0d0d0f" />
+      <footer style={{ borderTop:'1px solid var(--bg-border)', padding:'40px 48px', display:'flex', alignItems:'center', justifyContent:'space-between', background:'rgba(0,0,0,0.2)' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <div style={{ width:24, height:24, background:'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <Zap size={12} color="#fff" fill="#fff" />
           </div>
-          <span style={{ fontFamily:'Fraunces, serif', fontSize:14, color:'var(--text-secondary)' }}>TaskForge</span>
+          <span style={{ fontFamily:'Fraunces, serif', fontSize:16, color:'var(--text-secondary)', letterSpacing:'-0.02em' }}>TaskForge</span>
         </div>
-        <div style={{ display:'flex', gap:24 }}>
+        <div style={{ display:'flex', gap:32 }}>
           {([['Login','/login'],['Sign up','/signup'],['Dashboard','/dashboard']] as const).map(([label, href]) => (
             <Link key={label} href={href}
-              style={{ fontFamily:'DM Mono, monospace', fontSize:11, color:'var(--text-muted)', textDecoration:'none', letterSpacing:'0.04em' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color='var(--amber)')}
+              style={{ fontFamily:'Outfit, sans-serif', fontSize:13, color:'var(--text-muted)', textDecoration:'none', transition:'color 0.2s', fontWeight:400 }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color='var(--text-primary)')}
               onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color='var(--text-muted)')}>
               {label}
             </Link>
           ))}
         </div>
       </footer>
-
-      <style>{`@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }`}</style>
     </div>
   );
 }

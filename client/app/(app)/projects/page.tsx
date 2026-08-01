@@ -25,42 +25,62 @@ function ProjectCard({ project, onDelete }: { project: Project; onDelete: (p: Pr
   const total = project.taskStats?.total ?? 0;
   const done  = project.taskStats?.done  ?? 0;
   const pct   = total ? Math.round((done / total) * 100) : 0;
+  const baseColor = project.color ?? 'var(--accent-primary)';
 
   return (
-    <div className="card" style={{ padding:0, overflow:'hidden', transition:'transform 0.15s, border-color 0.15s', cursor:'pointer' }}
-      onMouseEnter={(e) => { e.currentTarget.style.transform='translateY(-2px)'; e.currentTarget.style.borderColor='rgba(245,158,11,0.3)'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.transform=''; e.currentTarget.style.borderColor='var(--bg-border)'; }}>
-      <div style={{ height:4, background: project.color ?? 'var(--amber)' }} />
-      <div style={{ padding:20 }}>
-        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:12 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-            <FolderKanban size={16} color={project.color ?? 'var(--amber)'} />
-            <span style={{ fontFamily:'Fraunces, serif', fontSize:16, color:'var(--text-primary)', fontWeight:600 }}>{project.name}</span>
+    <div className="glass-panel" style={{ padding:0, overflow:'hidden', transition:'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)', cursor:'pointer', position: 'relative' }}
+      onMouseEnter={(e) => { 
+        e.currentTarget.style.transform='translateY(-4px)'; 
+        e.currentTarget.style.borderColor='rgba(255,255,255,0.1)'; 
+        e.currentTarget.style.boxShadow=`0 8px 30px -10px ${baseColor}40`;
+      }}
+      onMouseLeave={(e) => { 
+        e.currentTarget.style.transform=''; 
+        e.currentTarget.style.borderColor='rgba(255,255,255,0.05)';
+        e.currentTarget.style.boxShadow='0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)';
+      }}>
+      
+      {/* Top accent line */}
+      <div style={{ height: 4, background: baseColor, boxShadow: `0 0 10px ${baseColor}` }} />
+      
+      {/* Ambient background glow inside the card */}
+      <div style={{ position:'absolute', top: -50, right: -50, width: 120, height: 120, background: baseColor, filter: 'blur(50px)', opacity: 0.1, borderRadius: '50%', pointerEvents: 'none' }} />
+
+      <div style={{ padding: 24 }}>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom: 16 }}>
+          <div style={{ display:'flex', alignItems:'center', gap: 12 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <FolderKanban size={16} color={baseColor} />
+            </div>
+            <span style={{ fontFamily:'Fraunces, serif', fontSize: 18, color:'var(--text-primary)', fontWeight: 500, letterSpacing: '-0.01em' }}>{project.name}</span>
           </div>
           <span className={`badge badge-${project.myRole}`}>{project.myRole}</span>
         </div>
+        
         {project.description && (
-          <p style={{ fontSize:12, color:'var(--text-secondary)', marginBottom:14, lineHeight:1.5 }}>{project.description}</p>
+          <p style={{ fontSize: 13, fontFamily: 'Outfit, sans-serif', color:'var(--text-secondary)', marginBottom: 20, lineHeight: 1.6 }}>{project.description}</p>
         )}
-        <div style={{ marginBottom:14 }}>
-          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-            <span style={{ fontSize:11, fontFamily:'DM Mono, monospace', color:'var(--text-muted)' }}>{done}/{total} tasks</span>
-            <span style={{ fontSize:11, fontFamily:'DM Mono, monospace', color:'var(--text-muted)' }}>{pct}%</span>
+        
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', marginBottom: 8 }}>
+            <span style={{ fontSize: 12, fontFamily:'Outfit, sans-serif', color:'var(--text-muted)' }}>{done}/{total} tasks</span>
+            <span style={{ fontSize: 12, fontFamily:'Outfit, sans-serif', color:'var(--text-primary)', fontWeight: 500 }}>{pct}%</span>
           </div>
-          <div style={{ height:3, background:'var(--bg-border)', borderRadius:2 }}>
-            <div style={{ height:'100%', width:`${pct}%`, background: project.color ?? 'var(--amber)', borderRadius:2 }} />
+          <div style={{ height: 4, background:'var(--bg-border)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ height:'100%', width:`${pct}%`, background: baseColor, borderRadius: 2, transition: 'width 0.8s cubic-bezier(0.16, 1, 0.3, 1)' }} />
           </div>
         </div>
+        
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <Link href={`/projects/${project._id}`} style={{ textDecoration:'none' }}>
-            <button className="btn-ghost" style={{ fontSize:11, padding:'6px 12px' }}>Open <ArrowRight size={12} /></button>
+            <button className="btn-primary" style={{ fontSize: 12, padding:'8px 16px', display: 'flex', alignItems: 'center', gap: 6 }}>Open <ArrowRight size={14} /></button>
           </Link>
           {project.myRole === 'admin' && (
             <button onClick={(e) => { e.preventDefault(); onDelete(project); }}
-              style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', display:'flex', padding:4 }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = '#f87171')}
-              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}>
-              <Trash2 size={14} />
+              style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', display:'flex', padding: 6, borderRadius: 6, transition: 'all 0.2s' }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(248, 113, 113, 0.1)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}>
+              <Trash2 size={16} />
             </button>
           )}
         </div>
@@ -138,29 +158,41 @@ export default function ProjectsPage(): ReactElement {
   };
 
   return (
-    <div style={{ display:'flex', minHeight:'100vh', background:'var(--bg-base)' }}>
+    <div style={{ display:'flex', minHeight:'100vh', background:'var(--bg-base)', position: 'relative' }}>
       <Sidebar />
-      <main style={{ flex:1, padding:'32px 36px', overflow:'auto' }}>
+      <main style={{ flex:1, padding:'40px 48px', overflow:'auto', position: 'relative', zIndex: 1 }}>
+        
+        {/* Subtle background glow */}
+        <div style={{ position:'absolute', top:'-10%', left:'50%', transform:'translateX(-50%)', width:'60vw', height:'40vw', background:'radial-gradient(circle, rgba(129, 140, 248, 0.05) 0%, transparent 60%)', filter:'blur(80px)', zIndex:-1, pointerEvents:'none' }} />
+
         <div className="animate-fade-in">
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:32 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: 40 }}>
             <div>
-              <p style={{ fontFamily:'DM Mono, monospace', fontSize:11, color:'var(--amber)', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:6 }}>Workspace</p>
-              <h1 style={{ fontFamily:'Fraunces, serif', fontSize:30, fontWeight:600, color:'var(--text-primary)' }}>Projects</h1>
+              <p style={{ fontFamily:'Outfit, sans-serif', fontSize: 13, fontWeight:500, color:'var(--accent-primary)', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom: 8 }}>Workspace</p>
+              <h1 style={{ fontFamily:'Fraunces, serif', fontSize: 36, fontWeight:400, color:'var(--text-primary)', letterSpacing:'-0.01em' }}>Projects</h1>
             </div>
-            <button className="btn-primary" onClick={() => setShowModal(true)}><Plus size={14} /> New Project</button>
+            <button className="btn-primary" onClick={() => setShowModal(true)} style={{ padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Plus size={16} /> New Project
+            </button>
           </div>
 
           {loading ? (
-            <p style={{ color:'var(--text-muted)', fontFamily:'DM Mono, monospace', fontSize:12 }}>Loading…</p>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}>
+              <div style={{ width: 24, height: 24, borderRadius: '50%', border: '2px solid var(--bg-border)', borderTopColor: 'var(--accent-primary)', animation: 'spin 1s linear infinite' }} />
+            </div>
           ) : projects.length === 0 ? (
-            <div style={{ textAlign:'center', padding:'80px 0' }}>
-              <FolderKanban size={40} color="var(--text-muted)" style={{ margin:'0 auto 16px' }} />
-              <p style={{ fontFamily:'Fraunces, serif', fontSize:20, color:'var(--text-secondary)', marginBottom:8 }}>No projects yet</p>
-              <p style={{ fontFamily:'DM Mono, monospace', fontSize:12, color:'var(--text-muted)', marginBottom:20 }}>Create one to get started</p>
-              <button className="btn-primary" onClick={() => setShowModal(true)}><Plus size={14}/> New Project</button>
+            <div className="glass-panel" style={{ textAlign:'center', padding:'80px 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ width: 64, height: 64, borderRadius: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
+                <FolderKanban size={32} color="var(--text-muted)" />
+              </div>
+              <p style={{ fontFamily:'Fraunces, serif', fontSize: 24, color:'var(--text-primary)', marginBottom: 12 }}>No projects yet</p>
+              <p style={{ fontFamily:'Outfit, sans-serif', fontSize: 14, color:'var(--text-secondary)', marginBottom: 24 }}>Create your first project to get started.</p>
+              <button className="btn-primary" onClick={() => setShowModal(true)} style={{ padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Plus size={16}/> New Project
+              </button>
             </div>
           ) : (
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:16 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(320px, 1fr))', gap: 24 }}>
               {projects.map((p) => <ProjectCard key={p._id} project={p} onDelete={setDeleteTarget} />)}
             </div>
           )}
@@ -171,38 +203,41 @@ export default function ProjectsPage(): ReactElement {
         <Modal title="Create Project" onClose={() => setShowModal(false)}>
           <form onSubmit={create}>
             {FORM_FIELDS.map(({ key, label, ph }) => (
-              <div key={key} style={{ marginBottom:18 }}>
-                <label style={{ display:'block', fontSize:11, fontFamily:'DM Mono, monospace', letterSpacing:'0.08em', color:'var(--text-muted)', textTransform:'uppercase', marginBottom:8 }}>{label}</label>
+              <div key={key} style={{ marginBottom: 20 }}>
+                <label style={{ display:'block', fontSize: 12, fontFamily:'Outfit, sans-serif', fontWeight: 500, letterSpacing:'0.06em', color:'var(--text-secondary)', textTransform:'uppercase', marginBottom: 8 }}>{label}</label>
                 {key === 'description'
                   ? <textarea placeholder={ph} rows={3} value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} style={{ resize:'none' }} />
                   : <input type="text" required placeholder={ph} value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} />}
               </div>
             ))}
-            <div style={{ marginBottom:24 }}>
-              <label style={{ display:'block', fontSize:11, fontFamily:'DM Mono, monospace', letterSpacing:'0.08em', color:'var(--text-muted)', textTransform:'uppercase', marginBottom:8 }}>Colour</label>
-              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            <div style={{ marginBottom: 32 }}>
+              <label style={{ display:'block', fontSize: 12, fontFamily:'Outfit, sans-serif', fontWeight: 500, letterSpacing:'0.06em', color:'var(--text-secondary)', textTransform:'uppercase', marginBottom: 12 }}>Colour</label>
+              <div style={{ display:'flex', gap: 12, flexWrap:'wrap' }}>
                 {COLORS.map((c) => (
                   <button key={c} type="button" onClick={() => setForm({ ...form, color: c })}
-                    style={{ width:28, height:28, borderRadius:'50%', background:c, border: form.color === c ? '3px solid white' : '3px solid transparent', cursor:'pointer', padding:0 }} />
+                    style={{ width: 36, height: 36, borderRadius: '50%', background: c, border: form.color === c ? '3px solid white' : '3px solid transparent', cursor: 'pointer', padding: 0, transition: 'all 0.2s', boxShadow: form.color === c ? `0 0 15px ${c}80` : 'none' }} 
+                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                  />
                 ))}
               </div>
             </div>
-            <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
-              <button type="button" className="btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-              <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Creating…' : 'Create Project'}</button>
+            <div style={{ display:'flex', gap: 12, justifyContent:'flex-end' }}>
+              <button type="button" className="btn-ghost" onClick={() => setShowModal(false)} style={{ padding: '10px 20px' }}>Cancel</button>
+              <button type="submit" className="btn-primary" disabled={saving} style={{ padding: '10px 24px' }}>{saving ? 'Creating…' : 'Create Project'}</button>
             </div>
           </form>
         </Modal>
       )}
 
       {deleteTarget && (
-        <Modal title="Delete Project" onClose={() => setDeleteTarget(null)} width={400}>
-          <p style={{ color:'var(--text-secondary)', fontSize:13, marginBottom:24, lineHeight:1.6 }}>
-            Delete <strong style={{ color:'var(--text-primary)' }}>{deleteTarget.name}</strong>? This will permanently remove all tasks.
+        <Modal title="Delete Project" onClose={() => setDeleteTarget(null)} width={420}>
+          <p style={{ color:'var(--text-secondary)', fontSize: 14, fontFamily: 'Outfit, sans-serif', marginBottom: 28, lineHeight: 1.6 }}>
+            Are you sure you want to delete <strong style={{ color:'var(--text-primary)' }}>{deleteTarget.name}</strong>? This action will permanently remove the project and all of its tasks.
           </p>
-          <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
-            <button className="btn-ghost" onClick={() => setDeleteTarget(null)}>Cancel</button>
-            <button className="btn-primary" style={{ background:'#ef4444' }} onClick={confirmDelete}>Delete</button>
+          <div style={{ display:'flex', gap: 12, justifyContent:'flex-end' }}>
+            <button className="btn-ghost" onClick={() => setDeleteTarget(null)} style={{ padding: '10px 20px' }}>Cancel</button>
+            <button className="btn-primary" style={{ background: '#ef4444', padding: '10px 24px' }} onClick={confirmDelete}>Delete</button>
           </div>
         </Modal>
       )}

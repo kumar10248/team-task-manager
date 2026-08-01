@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { dashboardApi } from '@/lib/api';
 import Sidebar from '@/components/Sidebar';
-import { CheckCircle2, Clock, AlertTriangle, Layers, TrendingUp, Users, LucideIcon } from 'lucide-react';
+import { CheckCircle2, Clock, AlertTriangle, Layers, TrendingUp, Users, LucideIcon, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 
 /* ================= TYPES ================= */
@@ -92,22 +92,23 @@ const PRIORITY_COLOR: Record<TaskPriority, string> = {
 
 /* ================= STAT CARD ================= */
 
-function StatCard({ icon: Icon, label, value, sub, color = 'var(--amber)' }: StatCardProps): ReactElement {
+function StatCard({ icon: Icon, label, value, sub, color = 'var(--accent-primary)' }: StatCardProps): ReactElement {
   return (
-    <div className="card" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 11, fontFamily: 'DM Mono, monospace', letterSpacing: '0.08em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+    <div className="glass-panel" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16, position:'relative', overflow:'hidden' }}>
+      <div style={{ position:'absolute', top:-20, right:-20, width:80, height:80, background:color, filter:'blur(40px)', opacity:0.15, borderRadius:'50%' }} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', zIndex:1 }}>
+        <span style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', fontWeight:500, letterSpacing: '0.06em', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
           {label}
         </span>
-        <div style={{ width: 32, height: 32, borderRadius: 8, background: `${color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Icon size={16} color={color} />
+        <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Icon size={18} color={color} />
         </div>
       </div>
-      <div style={{ fontFamily: 'Fraunces, serif', fontSize: 36, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1 }}>
+      <div style={{ fontFamily: 'Fraunces, serif', fontSize: 42, fontWeight: 300, color: 'var(--text-primary)', lineHeight: 1, zIndex:1 }}>
         {value}
       </div>
       {sub && (
-        <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'DM Mono, monospace' }}>{sub}</div>
+        <div style={{ fontSize: 13, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif', zIndex:1 }}>{sub}</div>
       )}
     </div>
   );
@@ -143,7 +144,8 @@ export default function DashboardPage(): ReactElement {
       <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-base)' }}>
         <Sidebar />
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--text-muted)' }}>Loading…</div>
+          <div style={{ width:24, height:24, borderRadius:'50%', border:'2px solid var(--bg-border)', borderTopColor:'var(--accent-primary)', animation:'spin 1s linear infinite' }} />
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       </div>
     );
@@ -163,150 +165,187 @@ export default function DashboardPage(): ReactElement {
   const completion = totalTasks ? Math.round((doneCount / totalTasks) * 100) : 0;
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)', position:'relative' }}>
       <Sidebar />
-      <main style={{ flex: 1, padding: '32px 36px', overflow: 'auto' }}>
+      <main style={{ flex: 1, padding: '40px 48px', overflow: 'auto', position:'relative', zIndex:1 }}>
+        
+        {/* Subtle background glow for the main area */}
+        <div style={{ position:'absolute', top:'-10%', left:'50%', transform:'translateX(-50%)', width:'60vw', height:'40vw', background:'radial-gradient(circle, rgba(129, 140, 248, 0.05) 0%, transparent 60%)', filter:'blur(80px)', zIndex:-1, pointerEvents:'none' }} />
+
         <div className="animate-fade-in">
 
           {/* Header */}
-          <div style={{ marginBottom: 32 }}>
-            <p style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--amber)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
-              Overview
-            </p>
-            <h1 style={{ fontFamily: 'Fraunces, serif', fontSize: 30, fontWeight: 600, color: 'var(--text-primary)' }}>
-              Good day, {user?.name?.split(' ')[0]}
-            </h1>
+          <div style={{ marginBottom: 40, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+            <div>
+              <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: 13, fontWeight:500, color: 'var(--accent-primary)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+                Overview
+              </p>
+              <h1 style={{ fontFamily: 'Fraunces, serif', fontSize: 36, fontWeight: 400, color: 'var(--text-primary)', letterSpacing:'-0.01em' }}>
+                Good day, {user?.name?.split(' ')[0]}
+              </h1>
+            </div>
+            <Link href="/tasks" style={{ textDecoration:'none' }}>
+              <button className="btn-primary" style={{ padding:'10px 24px' }}>New Task <ArrowRight size={14}/></button>
+            </Link>
           </div>
 
           {/* Stat cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16, marginBottom: 32 }}>
-            <StatCard icon={Layers}        label="Total Tasks"  value={totalTasks}                         sub={`${completion}% complete`} />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 20, marginBottom: 40 }}>
+            <StatCard icon={Layers}        label="Total Tasks"  value={totalTasks}                         sub={`${completion}% complete`} color="var(--accent-secondary)" />
             <StatCard icon={CheckCircle2}  label="Done"         value={doneCount}                          color="#4ade80" />
             <StatCard icon={Clock}         label="In Progress"  value={tasksByStatus.in_progress ?? 0}     color="#60a5fa" />
             <StatCard icon={AlertTriangle} label="Overdue"      value={overdueCount}                       color="#f87171" />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, marginBottom: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 24, marginBottom: 24 }}>
 
             {/* Projects */}
-            <div className="card" style={{ padding: 24 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 18, color: 'var(--text-primary)' }}>Projects</h2>
-                <Link href="/projects" style={{ fontSize: 11, fontFamily: 'DM Mono, monospace', color: 'var(--amber)', textDecoration: 'none', letterSpacing: '0.05em' }}>
+            <div className="glass-panel" style={{ padding: 32 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+                <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 22, fontWeight:400, color: 'var(--text-primary)' }}>Projects</h2>
+                <Link href="/projects" style={{ fontSize: 13, fontFamily: 'Outfit, sans-serif', fontWeight:500, color: 'var(--accent-primary)', textDecoration: 'none', transition:'color 0.2s' }} onMouseEnter={(e)=>e.currentTarget.style.color='var(--accent-secondary)'} onMouseLeave={(e)=>e.currentTarget.style.color='var(--accent-primary)'}>
                   View all →
                 </Link>
               </div>
 
               {projectSummaries.length === 0 ? (
-                <p style={{ color: 'var(--text-muted)', fontSize: 12, fontFamily: 'DM Mono, monospace' }}>No projects yet.</p>
+                <div style={{ padding:'40px 0', textAlign:'center', background:'rgba(255,255,255,0.02)', borderRadius:12, border:'1px dashed var(--bg-border)' }}>
+                  <p style={{ color: 'var(--text-muted)', fontSize: 14, fontFamily: 'Outfit, sans-serif' }}>No projects yet.</p>
+                </div>
               ) : (
-                projectSummaries.slice(0, 5).map((p) => {
-                  const total = p.taskStats.total || 1;
-                  const pct   = Math.round(((p.taskStats.done ?? 0) / total) * 100);
-                  return (
-                    <Link key={p._id} href={`/projects/${p._id}`} style={{ textDecoration: 'none' }}>
-                      <div style={{ padding: '12px 0', borderBottom: '1px solid var(--bg-border)', cursor: 'pointer' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: p.color ?? 'var(--amber)', flexShrink: 0 }} />
-                            <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{p.name}</span>
+                <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+                  {projectSummaries.slice(0, 5).map((p) => {
+                    const total = p.taskStats.total || 1;
+                    const pct   = Math.round(((p.taskStats.done ?? 0) / total) * 100);
+                    return (
+                      <Link key={p._id} href={`/projects/${p._id}`} style={{ textDecoration: 'none' }}>
+                        <div style={{ padding: '16px', background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)', borderRadius:12, transition:'all 0.2s', cursor: 'pointer' }}
+                          onMouseEnter={(e)=>{ e.currentTarget.style.background='rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor='rgba(255,255,255,0.1)' }}
+                          onMouseLeave={(e)=>{ e.currentTarget.style.background='rgba(255,255,255,0.02)'; e.currentTarget.style.borderColor='rgba(255,255,255,0.05)' }}>
+                          
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                              <div style={{ width: 10, height: 10, borderRadius: '50%', background: p.color ?? 'var(--accent-primary)', flexShrink: 0, boxShadow:`0 0 8px ${p.color ?? 'var(--accent-primary)'}` }} />
+                              <span style={{ fontSize: 15, fontFamily:'Outfit, sans-serif', color: 'var(--text-primary)', fontWeight: 500 }}>{p.name}</span>
+                            </div>
+                            <span style={{ fontSize: 13, fontFamily: 'Outfit, sans-serif', fontWeight:500, color: 'var(--text-secondary)' }}>{pct}%</span>
                           </div>
-                          <span style={{ fontSize: 11, fontFamily: 'DM Mono, monospace', color: 'var(--text-muted)' }}>{pct}%</span>
+                          
+                          <div style={{ height: 6, background: 'var(--bg-border)', borderRadius: 3, overflow:'hidden', marginBottom: 8 }}>
+                            <div style={{ height: '100%', width: `${pct}%`, background: p.color ?? 'var(--accent-primary)', borderRadius: 3, transition: 'width 0.8s cubic-bezier(0.16, 1, 0.3, 1)' }} />
+                          </div>
+                          
+                          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)' }}>
+                            <span>{p.taskStats.done ?? 0} of {p.taskStats.total ?? 0} tasks completed</span>
+                            <span className={`badge badge-${p.myRole}`}>{p.myRole}</span>
+                          </div>
                         </div>
-                        <div style={{ height: 3, background: 'var(--bg-border)', borderRadius: 2 }}>
-                          <div style={{ height: '100%', width: `${pct}%`, background: p.color ?? 'var(--amber)', borderRadius: 2, transition: 'width 0.5s' }} />
-                        </div>
-                        <div style={{ marginTop: 6, fontSize: 10, fontFamily: 'DM Mono, monospace', color: 'var(--text-muted)' }}>
-                          {p.taskStats.done ?? 0}/{p.taskStats.total ?? 0} tasks · <span className={`badge badge-${p.myRole}`}>{p.myRole}</span>
-                        </div>
-                      </div>
-                    </Link>
-                  );
-                })
+                      </Link>
+                    );
+                  })}
+                </div>
               )}
             </div>
 
             {/* Tasks per user */}
-            <div className="card" style={{ padding: 24 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-                <Users size={15} color="var(--amber)" />
-                <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 18, color: 'var(--text-primary)' }}>By Member</h2>
+            <div className="glass-panel" style={{ padding: 32 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
+                <div style={{ width:32, height:32, borderRadius:8, background:'rgba(255,255,255,0.05)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <Users size={16} color="var(--accent-secondary)" />
+                </div>
+                <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 20, fontWeight:400, color: 'var(--text-primary)' }}>By Member</h2>
               </div>
 
               {tasksPerUser.length === 0 ? (
-                <p style={{ color: 'var(--text-muted)', fontSize: 12, fontFamily: 'DM Mono, monospace' }}>No data.</p>
+                <p style={{ color: 'var(--text-muted)', fontSize: 14, fontFamily: 'Outfit, sans-serif' }}>No data.</p>
               ) : (
-                tasksPerUser.slice(0, 6).map((u) => (
-                  <div key={u.userId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--bg-border)' }}>
-                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'linear-gradient(135deg,var(--amber),#d97706)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontFamily: 'DM Mono, monospace', color: '#0d0d0f', fontWeight: 600, flexShrink: 0 }}>
-                      {u.name?.[0]?.toUpperCase()}
-                    </div>
-                    <div style={{ flex: 1, overflow: 'hidden' }}>
-                      <div style={{ fontSize: 12, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {u.name}
+                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  {tasksPerUser.slice(0, 6).map((u) => (
+                    <div key={u.userId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px', background:'rgba(255,255,255,0.02)', borderRadius:10, border:'1px solid transparent', transition:'all 0.2s' }}
+                         onMouseEnter={(e)=>e.currentTarget.style.borderColor='rgba(255,255,255,0.05)'}
+                         onMouseLeave={(e)=>e.currentTarget.style.borderColor='transparent'}>
+                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontFamily: 'Outfit, sans-serif', color: '#fff', fontWeight: 600, flexShrink: 0 }}>
+                        {u.name?.[0]?.toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1, overflow: 'hidden' }}>
+                        <div style={{ fontSize: 14, fontFamily:'Outfit, sans-serif', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {u.name}
+                        </div>
+                      </div>
+                      <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: 15, color: 'var(--text-primary)', fontWeight: 500 }}>
+                        {u.count}
                       </div>
                     </div>
-                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--amber)', fontWeight: 500 }}>
-                      {u.count}
-                    </div>
-                  </div>
-                ))
+                  ))}
+                </div>
               )}
             </div>
           </div>
 
           {/* Recent + Overdue */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
 
             {/* Recent Activity */}
-            <div className="card" style={{ padding: 24 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-                <TrendingUp size={15} color="var(--amber)" />
-                <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 18, color: 'var(--text-primary)' }}>Recent Activity</h2>
+            <div className="glass-panel" style={{ padding: 32 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
+                <div style={{ width:32, height:32, borderRadius:8, background:'rgba(255,255,255,0.05)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <TrendingUp size={16} color="var(--accent-primary)" />
+                </div>
+                <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 20, fontWeight:400, color: 'var(--text-primary)' }}>Recent Activity</h2>
               </div>
 
               {recentTasks.length === 0 ? (
-                <p style={{ color: 'var(--text-muted)', fontSize: 12, fontFamily: 'DM Mono, monospace' }}>No recent tasks.</p>
+                <div style={{ padding:'30px 0', textAlign:'center', background:'rgba(255,255,255,0.02)', borderRadius:12, border:'1px dashed var(--bg-border)' }}>
+                  <p style={{ color: 'var(--text-muted)', fontSize: 14, fontFamily: 'Outfit, sans-serif' }}>No recent tasks.</p>
+                </div>
               ) : (
-                recentTasks.slice(0, 5).map((t) => (
-                  <div key={t._id} style={{ padding: '10px 0', borderBottom: '1px solid var(--bg-border)', display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, color: 'var(--text-primary)', marginBottom: 2 }}>{t.title}</div>
-                      <div style={{ fontSize: 11, fontFamily: 'DM Mono, monospace', color: 'var(--text-muted)' }}>
-                        {typeof t.project === 'string' ? t.project : t.project?.name}
+                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  {recentTasks.slice(0, 5).map((t) => (
+                    <div key={t._id} style={{ padding: '14px 16px', background:'rgba(255,255,255,0.02)', borderRadius:10, display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontFamily:'Outfit, sans-serif', fontWeight:500, color: 'var(--text-primary)', marginBottom: 4 }}>{t.title}</div>
+                        <div style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)' }}>
+                          {typeof t.project === 'string' ? t.project : t.project?.name}
+                        </div>
                       </div>
+                      <span className={`badge badge-${t.status === 'in_progress' ? 'progress' : t.status}`}>
+                        {STATUS_LABEL[t.status] ?? t.status}
+                      </span>
                     </div>
-                    <span className={`badge badge-${t.status === 'in_progress' ? 'progress' : t.status}`}>
-                      {STATUS_LABEL[t.status] ?? t.status}
-                    </span>
-                  </div>
-                ))
+                  ))}
+                </div>
               )}
             </div>
 
             {/* Overdue */}
-            <div className="card" style={{ padding: 24 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-                <AlertTriangle size={15} color="#f87171" />
-                <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 18, color: 'var(--text-primary)' }}>Overdue</h2>
+            <div className="glass-panel" style={{ padding: 32 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
+                <div style={{ width:32, height:32, borderRadius:8, background:'rgba(248, 113, 113, 0.1)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <AlertTriangle size={16} color="#f87171" />
+                </div>
+                <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 20, fontWeight:400, color: 'var(--text-primary)' }}>Overdue</h2>
               </div>
 
               {overdueTasks.length === 0 ? (
-                <p style={{ color: 'var(--text-muted)', fontSize: 12, fontFamily: 'DM Mono, monospace' }}>No overdue tasks 🎉</p>
+                <div style={{ padding:'30px 0', textAlign:'center', background:'rgba(255,255,255,0.02)', borderRadius:12, border:'1px dashed var(--bg-border)' }}>
+                  <p style={{ color: 'var(--text-muted)', fontSize: 14, fontFamily: 'Outfit, sans-serif' }}>No overdue tasks 🎉</p>
+                </div>
               ) : (
-                overdueTasks.slice(0, 5).map((t) => (
-                  <div key={t._id} style={{ padding: '10px 0', borderBottom: '1px solid var(--bg-border)', display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, color: 'var(--text-primary)', marginBottom: 2 }}>{t.title}</div>
-                      {t.dueDate && (
-                        <div style={{ fontSize: 11, fontFamily: 'DM Mono, monospace', color: 'var(--text-muted)' }}>
-                          Due {new Date(t.dueDate).toLocaleDateString()}
-                        </div>
-                      )}
+                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  {overdueTasks.slice(0, 5).map((t) => (
+                    <div key={t._id} style={{ padding: '14px 16px', background:'rgba(248, 113, 113, 0.05)', border:'1px solid rgba(248, 113, 113, 0.1)', borderRadius:10, display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontFamily:'Outfit, sans-serif', fontWeight:500, color: 'var(--text-primary)', marginBottom: 4 }}>{t.title}</div>
+                        {t.dueDate && (
+                          <div style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)' }}>
+                            Due {new Date(t.dueDate).toLocaleDateString()}
+                          </div>
+                        )}
+                      </div>
+                      <span className={`badge badge-${t.priority}`}>{t.priority}</span>
                     </div>
-                    <span className={`badge badge-${t.priority}`}>{t.priority}</span>
-                  </div>
-                ))
+                  ))}
+                </div>
               )}
             </div>
           </div>
