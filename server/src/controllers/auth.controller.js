@@ -147,3 +147,41 @@ exports.changePassword = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
+/**
+ * POST /api/auth/clock-in
+ * Marks the user as clocked in.
+ */
+exports.clockIn = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    user.isClockedIn = true;
+    user.lastClockIn = new Date();
+    await user.save({ validateBeforeSave: false });
+
+    res.json({ success: true, user: user.toPublicJSON() });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/**
+ * POST /api/auth/clock-out
+ * Marks the user as clocked out.
+ */
+exports.clockOut = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    user.isClockedIn = false;
+    user.lastClockOut = new Date();
+    await user.save({ validateBeforeSave: false });
+
+    res.json({ success: true, user: user.toPublicJSON() });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};

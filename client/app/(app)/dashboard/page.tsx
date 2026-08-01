@@ -65,6 +65,15 @@ interface DashboardData {
   projectSummaries: ProjectSummary[];
   recentTasks: RecentTask[];
   overdueTasks: OverdueTask[];
+  teamAttendance?: {
+    _id: string;
+    name: string;
+    email: string;
+    avatar: string | null;
+    isClockedIn?: boolean;
+    lastClockIn?: string | null;
+    lastClockOut?: string | null;
+  }[];
 }
 
 interface StatCardProps {
@@ -159,6 +168,7 @@ export default function DashboardPage(): ReactElement {
     projectSummaries = [],
     recentTasks      = [],
     overdueTasks     = [],
+    teamAttendance   = [],
   } = data ?? {};
 
   const doneCount  = tasksByStatus.done ?? 0;
@@ -351,6 +361,42 @@ export default function DashboardPage(): ReactElement {
           </div>
 
         </div>
+        
+        {teamAttendance.length > 0 && (
+          <div className="glass-panel" style={{ padding: 32, marginTop: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
+              <div style={{ width:32, height:32, borderRadius:8, background:'rgba(255,255,255,0.05)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <Users size={16} color="var(--accent-primary)" />
+              </div>
+              <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 20, fontWeight:400, color: 'var(--text-primary)' }}>Team Attendance</h2>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 16 }}>
+              {teamAttendance.map(member => (
+                <div key={member._id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px', background:'rgba(255,255,255,0.02)', borderRadius:12, border:'1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ position: 'relative' }}>
+                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontFamily: 'Outfit, sans-serif', color: '#fff', fontWeight: 600, flexShrink: 0 }}>
+                      {member.name?.[0]?.toUpperCase()}
+                    </div>
+                    {/* Status Dot */}
+                    <span style={{ position:'absolute', bottom:-2, right:-2, width:12, height:12, borderRadius:'50%', background: member.isClockedIn ? '#4ade80' : 'var(--text-muted)', border:'2px solid #0a0a0f', boxShadow: member.isClockedIn ? '0 0 8px #4ade80' : 'none' }} />
+                  </div>
+                  <div style={{ flex: 1, overflow: 'hidden' }}>
+                    <div style={{ fontSize: 15, fontFamily:'Outfit, sans-serif', color: 'var(--text-primary)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {member.name}
+                    </div>
+                    <div style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)' }}>
+                      {member.isClockedIn 
+                        ? `Clocked in at ${member.lastClockIn ? new Date(member.lastClockIn).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Unknown'}` 
+                        : member.lastClockOut 
+                          ? `Clocked out at ${new Date(member.lastClockOut).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`
+                          : 'Offline'}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

@@ -56,6 +56,12 @@ exports.createTask = async (req, res) => {
       .populate('assignedTo', 'name email avatar')
       .populate('createdBy', 'name email');
 
+    if (assignedTo && assignedTo.toString() !== req.user._id.toString()) {
+      require('./notification.controller').createNotification({
+        recipient: assignedTo, sender: req.user._id, type: 'assignment', project: projectId, task: task._id, text: `assigned you to "${title}"`
+      });
+    }
+
     res.status(201).json({ success: true, task: populated });
   } catch (err) {
     console.error('Create task error:', err);
@@ -187,6 +193,9 @@ exports.updateTask = async (req, res) => {
     const memberFields = ['status'];
     const allowedFields = membership.role === 'admin' ? [...adminFields, ...memberFields] : memberFields;
 
+    const oldAssignee = task.assignedTo?.toString();
+    const oldStatus = task.status;
+
     const updates = {};
     allowedFields.forEach((field) => {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
@@ -204,6 +213,20 @@ exports.updateTask = async (req, res) => {
 
     Object.assign(task, updates);
     await task.save();
+
+    if (updates.assignedTo && updates.assignedTo !== oldAssignee && updates.assignedTo !== req.user._id.toString()) {
+      require('./notification.controller').createNotification({
+        recipient: updates.assignedTo, sender: req.user._id, type: 'assignment', project: projectId, task: task._id, text: `assigned you to "${task.title}"`
+      });
+    }
+    if (updates.status && updates.status !== oldStatus) {
+      const recipient = task.createdBy.toString() === req.user._id.toString() ? task.assignedTo : task.createdBy;
+      if (recipient && recipient.toString() !== req.user._id.toString()) {
+        require('./notification.controller').createNotification({
+          recipient, sender: req.user._id, type: 'status', project: projectId, task: task._id, text: `moved "${task.title}" to ${updates.status}`
+        });
+      }
+    }
 
     const populated = await Task.findById(task._id)
       .populate('assignedTo', 'name email avatar')
@@ -275,6 +298,13 @@ exports.addComment = async (req, res) => {
 
     await task.populate('comments.user', 'name email avatar');
     const newComment = task.comments[task.comments.length - 1];
+
+    const recipient = task.assignedTo?.toString() === req.user._id.toString() ? task.createdBy : task.assignedTo;
+    if (recipient && recipient.toString() !== req.user._id.toString()) {
+      require('./notification.controller').createNotification({
+        recipient, sender: req.user._id, type: 'comment', project: projectId, task: task._id, text: `left a comment on "${task.title}"`
+      });
+    }
 
     res.status(201).json({ success: true, comment: newComment });
   } catch (err) {

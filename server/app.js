@@ -6,6 +6,7 @@ const cookieParser = require('cookie-parser');
 const authRoutes = require('./src/routes/auth.route');
 const projectRoutes = require('./src/routes/project.route');
 const dashboardRoutes = require('./src/routes/dashboard.route');
+const notificationRoutes = require('./src/routes/notification.route');
  
 const app = express();
  
@@ -22,6 +23,7 @@ app.use(cookieParser());
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/notifications', notificationRoutes);
  
 // Health check
 app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toLocaleString() }));

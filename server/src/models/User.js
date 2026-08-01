@@ -36,6 +36,18 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    isClockedIn: {
+      type: Boolean,
+      default: false,
+    },
+    lastClockIn: {
+      type: Date,
+      default: null,
+    },
+    lastClockOut: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -70,6 +82,9 @@ userSchema.methods.toPublicJSON = function () {
     name: this.name,
     email: this.email,
     avatar: this.avatar,
+    isClockedIn: this.isClockedIn,
+    lastClockIn: this.lastClockIn,
+    lastClockOut: this.lastClockOut,
     createdAt: this.createdAt,
   };
 };

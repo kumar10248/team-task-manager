@@ -9,6 +9,9 @@ export interface User {
   name: string;
   email: string;
   avatar: string | null;
+  isClockedIn?: boolean;
+  lastClockIn?: string;
+  lastClockOut?: string;
   createdAt: string;
 }
 
@@ -74,6 +77,7 @@ export interface DashboardData {
   overdueTasks: Task[];
   recentTasks: Task[];
   projectSummaries: Array<Project & { taskStats: { todo: number; in_progress: number; done: number; total: number }; myRole: 'admin' | 'member' }>;
+  teamAttendance?: User[];
 }
 
 // ─── Core fetch ───────────────────────────────────────────────────────────────
@@ -121,6 +125,8 @@ export const authApi = {
   getMe:          ()                                                      => get<{ success: boolean; user: User }>('/auth/me'),
   updateMe:       (d: Partial<Pick<User, 'name' | 'avatar'>>)            => patch<{ success: boolean; user: User }>('/auth/me', d),
   changePassword: (d: { currentPassword: string; newPassword: string }) => post<AuthResponse>('/auth/change-password', d),
+  clockIn:        ()                                                      => post<{ success: boolean; user: User }>('/auth/clock-in', {}),
+  clockOut:       ()                                                      => post<{ success: boolean; user: User }>('/auth/clock-out', {}),
 };
 
 // ─── Projects ────────────────────────────────────────────────────────────────
@@ -175,11 +181,27 @@ export const tasksApi = {
   deleteComment: (pid: string, tid: string, cid: string)            => del<{ success: boolean; message: string }>(`/projects/${pid}/tasks/${tid}/comments/${cid}`),
 };
 
-// ─── Dashboard ───────────────────────────────────────────────────────────────
-
 export const dashboardApi = {
   get:        ()          => get<{ success: boolean; dashboard: DashboardData }>('/dashboard'),
   getProject: (pid: string) => get<{ success: boolean; stats: unknown }>(`/dashboard/project/${pid}`),
+};
+
+// ─── Notifications ─────────────────────────────────────────────────────────────
+
+export interface Notification {
+  _id: string;
+  type: 'mention' | 'assignment' | 'status' | 'comment' | 'system';
+  text: string;
+  isRead: boolean;
+  createdAt: string;
+  sender?: { _id: string; name: string; avatar: string | null };
+  project?: string;
+  task?: string;
+}
+
+export const notificationsApi = {
+  list:       () => get<{ success: boolean; notifications: Notification[] }>('/notifications'),
+  markAsRead: (notificationIds?: string[]) => patch<{ success: boolean }>('/notifications/read', { notificationIds }),
 };
 
 // ─── Token helpers ────────────────────────────────────────────────────────────

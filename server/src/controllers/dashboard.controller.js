@@ -132,6 +132,28 @@ exports.getDashboard = async (req, res) => {
       taskStats: statsMap[p._id.toString()] || { todo: 0, in_progress: 0, done: 0, total: 0 },
     }));
 
+    // ── 5.5 Team Attendance (Admins only) ───────────────────────────────────
+    let teamAttendance = [];
+    if (adminProjectIds.length > 0) {
+      // Find all project members for projects this user admins
+      const teamMemberships = await ProjectMember.find({ project: { $in: adminProjectIds } }).populate('user', 'name email avatar isClockedIn lastClockIn lastClockOut');
+      const uniqueUsers = new Map();
+      teamMemberships.forEach(m => {
+        if (m.user && !uniqueUsers.has(m.user._id.toString())) {
+          uniqueUsers.set(m.user._id.toString(), {
+            _id: m.user._id,
+            name: m.user.name,
+            email: m.user.email,
+            avatar: m.user.avatar,
+            isClockedIn: m.user.isClockedIn,
+            lastClockIn: m.user.lastClockIn,
+            lastClockOut: m.user.lastClockOut,
+          });
+        }
+      });
+      teamAttendance = Array.from(uniqueUsers.values());
+    }
+
     // ── 6. Normalise tasksByStatus into a plain object ─────────────────────
     const statusSummary = { todo: 0, in_progress: 0, done: 0 };
     tasksByStatus.forEach(({ _id, count }) => {
@@ -149,6 +171,7 @@ exports.getDashboard = async (req, res) => {
         overdueTasks,
         recentTasks,
         projectSummaries,
+        teamAttendance,
       },
     });
   } catch (err) {

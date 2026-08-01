@@ -9,5 +9,7 @@ router.post('/login', auth.login);
 router.get('/me', protect, auth.getMe);
 router.patch('/me', protect, auth.updateMe);
 router.post('/change-password', protect, auth.changePassword);
+router.post('/clock-in', protect, auth.clockIn);
+router.post('/clock-out', protect, auth.clockOut);
 
 module.exports = router;
