@@ -44,6 +44,7 @@ export interface Comment {
   user: User;
   text: string;
   createdAt: string;
+  editedAt?: string;
 }
 
 export interface Task {
@@ -178,12 +179,22 @@ export const tasksApi = {
   update:        (pid: string, tid: string, d: Partial<CreateTaskPayload & { status: TaskStatus }>) => patch<TaskResponse>(`/projects/${pid}/tasks/${tid}`, d),
   delete:        (pid: string, tid: string)                         => del<{ success: boolean; message: string }>(`/projects/${pid}/tasks/${tid}`),
   addComment:    (pid: string, tid: string, d: { text: string })    => post<{ success: boolean; comment: Comment }>(`/projects/${pid}/tasks/${tid}/comments`, d),
+  updateComment: (pid: string, tid: string, cid: string, d: { text: string }) => patch<{ success: boolean; comment: Comment }>(`/projects/${pid}/tasks/${tid}/comments/${cid}`, d),
   deleteComment: (pid: string, tid: string, cid: string)            => del<{ success: boolean; message: string }>(`/projects/${pid}/tasks/${tid}/comments/${cid}`),
 };
+
+export interface AttendanceLog {
+  _id: string;
+  user: User;
+  clockIn: string;
+  clockOut: string;
+  durationMinutes: number;
+}
 
 export const dashboardApi = {
   get:        ()          => get<{ success: boolean; dashboard: DashboardData }>('/dashboard'),
   getProject: (pid: string) => get<{ success: boolean; stats: unknown }>(`/dashboard/project/${pid}`),
+  getAttendanceLogs: ()     => get<{ success: boolean; logs: AttendanceLog[] }>('/dashboard/attendance-logs'),
 };
 
 // ─── Notifications ─────────────────────────────────────────────────────────────

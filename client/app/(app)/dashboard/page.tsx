@@ -2,7 +2,7 @@
 import { useEffect, useState, ReactElement } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { dashboardApi } from '@/lib/api';
+import { dashboardApi, AttendanceLog } from '@/lib/api';
 import Sidebar from '@/components/Sidebar';
 import { CheckCircle2, Clock, AlertTriangle, Layers, TrendingUp, Users, LucideIcon, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
@@ -133,6 +133,7 @@ export default function DashboardPage(): ReactElement {
   const router = useRouter();
 
   const [data, setData]     = useState<DashboardData | null>(null);
+  const [attendanceLogs, setAttendanceLogs] = useState<AttendanceLog[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -146,6 +147,11 @@ export default function DashboardPage(): ReactElement {
       .then((d) => setData(d.dashboard))
       .catch(console.error)
       .finally(() => setLoading(false));
+
+    dashboardApi
+      .getAttendanceLogs()
+      .then((res) => setAttendanceLogs(res.logs))
+      .catch(console.error);
   }, [user]);
 
   if (authLoading || loading) {
@@ -394,6 +400,46 @@ export default function DashboardPage(): ReactElement {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {attendanceLogs.length > 0 && (
+          <div className="glass-panel" style={{ padding: 32, marginTop: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
+              <div style={{ width:32, height:32, borderRadius:8, background:'rgba(255,255,255,0.05)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <Clock size={16} color="var(--accent-primary)" />
+              </div>
+              <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 20, fontWeight:400, color: 'var(--text-primary)' }}>Attendance History</h2>
+            </div>
+            <div style={{ maxHeight: 300, overflowY: 'auto', paddingRight: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, fontFamily: 'Outfit, sans-serif' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', color: 'var(--text-secondary)', textAlign: 'left' }}>
+                    <th style={{ padding: '12px 16px', fontWeight: 500 }}>User</th>
+                    <th style={{ padding: '12px 16px', fontWeight: 500 }}>Clock In</th>
+                    <th style={{ padding: '12px 16px', fontWeight: 500 }}>Clock Out</th>
+                    <th style={{ padding: '12px 16px', fontWeight: 500 }}>Duration</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {attendanceLogs.map((log) => (
+                    <tr key={log._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                      <td style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600 }}>
+                          {log.user.name?.[0]?.toUpperCase()}
+                        </div>
+                        <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{log.user.name}</span>
+                      </td>
+                      <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>{new Date(log.clockIn).toLocaleString()}</td>
+                      <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>{new Date(log.clockOut).toLocaleString()}</td>
+                      <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>
+                        {Math.floor(log.durationMinutes / 60)}h {log.durationMinutes % 60}m
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}

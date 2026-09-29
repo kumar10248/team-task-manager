@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const AttendanceLog = require('../models/AttendanceLog');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -175,6 +176,17 @@ exports.clockOut = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    if (user.lastClockIn) {
+      const clockOutTime = new Date();
+      const durationMinutes = Math.floor((clockOutTime - new Date(user.lastClockIn)) / 60000);
+      await AttendanceLog.create({
+        user: user._id,
+        clockIn: user.lastClockIn,
+        clockOut: clockOutTime,
+        durationMinutes,
+      });
+    }
 
     user.isClockedIn = false;
     user.lastClockOut = new Date();

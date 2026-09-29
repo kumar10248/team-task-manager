@@ -4,14 +4,15 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { projectsApi, tasksApi } from '@/lib/api';
-import type { Project, ProjectMember, Task, TaskStatus, TaskPriority } from '@/lib/api';
+import type { Project, ProjectMember, Task, TaskStatus, TaskPriority, Comment } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import Modal from '@/components/Model';
 import {
   Plus, ArrowLeft, Trash2, UserPlus, Pencil,
-  MessageSquare, Send, X,
+  MessageSquare, Send, X, Check
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -210,6 +211,9 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, onClose, onRefr
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
 
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
+
   const send = async (e: FormEvent) => {
     e.preventDefault();
     if (!text.trim()) return;
@@ -231,6 +235,22 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, onClose, onRefr
       onRefresh();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to delete comment', 'error');
+    }
+  };
+
+  const startEditing = (comment: Comment) => {
+    setEditingCommentId(comment._id);
+    setEditText(comment.text);
+  };
+
+  const saveEdit = async (commentId: string) => {
+    if (!editText.trim()) return;
+    try {
+      await tasksApi.updateComment(projectId, task._id, commentId, { text: editText.trim() });
+      setEditingCommentId(null);
+      onRefresh();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to update comment', 'error');
     }
   };
 
@@ -262,20 +282,54 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, onClose, onRefr
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <span style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)' }}>
                       {new Date(c.createdAt).toLocaleDateString()} {new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {c.editedAt && ' (edited)'}
                     </span>
                     {(c.user?._id === currentUserId || myRole === 'admin') && (
-                      <button
-                        onClick={() => deleteComment(c._id)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4, borderRadius: 4, transition: 'all 0.2s' }}
-                        onMouseEnter={(e) => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(248, 113, 113, 0.1)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
-                      >
-                        <X size={14} />
-                      </button>
+                      <>
+                        {c.user?._id === currentUserId && editingCommentId !== c._id && (
+                          <button
+                            onClick={() => startEditing(c)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4, borderRadius: 4, transition: 'all 0.2s' }}
+                            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
+                          >
+                            <Pencil size={14} />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => deleteComment(c._id)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4, borderRadius: 4, transition: 'all 0.2s' }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(248, 113, 113, 0.1)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
-                <p style={{ fontSize: 14, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)', lineHeight: 1.6 }}>{c.text}</p>
+                {editingCommentId === c._id ? (
+                  <div style={{ marginTop: 8 }}>
+                    <textarea
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                      rows={3}
+                      style={{ width: '100%', resize: 'vertical', fontSize: 14, marginBottom: 8 }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') setEditingCommentId(null);
+                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveEdit(c._id);
+                      }}
+                    />
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      <button className="btn-ghost" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => setEditingCommentId(null)}>Cancel</button>
+                      <button className="btn-primary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => saveEdit(c._id)}>Save</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="prose prose-invert prose-sm" style={{ fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    <ReactMarkdown>{c.text}</ReactMarkdown>
+                  </div>
+                )}
               </div>
             </div>
           ))
@@ -744,12 +798,23 @@ export default function ProjectDetailPage() {
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)'; }}
                 >
-                  <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontFamily: 'Outfit, sans-serif', color: '#fff', fontWeight: 600, flexShrink: 0 }}>
-                    {m.user?.name?.[0]?.toUpperCase()}
+                  <div style={{ position: 'relative' }}>
+                    <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontFamily: 'Outfit, sans-serif', color: '#fff', fontWeight: 600, flexShrink: 0 }}>
+                      {m.user?.name?.[0]?.toUpperCase()}
+                    </div>
+                    {/* Status Dot */}
+                    <span style={{ position:'absolute', bottom:-2, right:-2, width:12, height:12, borderRadius:'50%', background: m.user?.isClockedIn ? '#4ade80' : 'var(--text-muted)', border:'2px solid #0a0a0f', boxShadow: m.user?.isClockedIn ? '0 0 8px #4ade80' : 'none' }} />
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 15, fontFamily: 'Outfit, sans-serif', color: 'var(--text-primary)', fontWeight: 500, marginBottom: 4 }}>{m.user?.name}</div>
                     <div style={{ fontSize: 13, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)' }}>{m.user?.email}</div>
+                    <div style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)', marginTop: 4 }}>
+                      {m.user?.isClockedIn 
+                        ? `Clocked in at ${m.user?.lastClockIn ? new Date(m.user.lastClockIn).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Unknown'}` 
+                        : m.user?.lastClockOut 
+                          ? `Clocked out at ${new Date(m.user.lastClockOut).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`
+                          : 'Offline'}
+                    </div>
                   </div>
 
                   <span className={`badge badge-${m.role}`} style={{ fontSize: 13 }}>{m.role}</span>

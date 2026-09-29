@@ -95,7 +95,7 @@ exports.getProject = async (req, res) => {
 
     const members = await ProjectMember.find({ project: req.params.id }).populate(
       'user',
-      'name email avatar'
+      'name email avatar isClockedIn lastClockIn lastClockOut'
     );
 
     const taskStats = await Task.aggregate([

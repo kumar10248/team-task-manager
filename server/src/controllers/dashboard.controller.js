@@ -281,3 +281,31 @@ exports.getProjectDashboard = async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to load project dashboard' });
   }
 };
+
+/**
+ * GET /api/dashboard/attendance-logs
+ * Detailed attendance logs for the user's team (or just themselves).
+ */
+exports.getAttendanceLogs = async (req, res) => {
+  try {
+    const AttendanceLog = require('../models/AttendanceLog');
+    const memberships = await ProjectMember.find({ user: req.user._id, role: 'admin' });
+    const adminProjectIds = memberships.map((m) => m.project);
+    
+    let targetUsers = [req.user._id]; // at least the user themselves
+    
+    if (adminProjectIds.length > 0) {
+      const teamMemberships = await ProjectMember.find({ project: { $in: adminProjectIds } });
+      targetUsers = [...new Set(teamMemberships.map((m) => m.user.toString()))];
+    }
+    
+    const logs = await AttendanceLog.find({ user: { $in: targetUsers } })
+      .populate('user', 'name email avatar')
+      .sort({ clockIn: -1 })
+      .limit(100);
+      
+    res.json({ success: true, logs });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to fetch attendance logs' });
+  }
+};

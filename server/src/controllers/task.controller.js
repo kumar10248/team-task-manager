@@ -313,6 +313,47 @@ exports.addComment = async (req, res) => {
 };
 
 /**
+ * PATCH /api/projects/:projectId/tasks/:taskId/comments/:commentId
+ * Update a comment. Author only.
+ */
+exports.updateComment = async (req, res) => {
+  try {
+    const { projectId, taskId, commentId } = req.params;
+    const membership = await getMembership(projectId, req.user._id);
+    if (!membership) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const task = await Task.findOne({ _id: taskId, project: projectId });
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
+
+    const comment = task.comments.id(commentId);
+    if (!comment) return res.status(404).json({ success: false, message: 'Comment not found' });
+
+    const isAuthor = comment.user.toString() === req.user._id.toString();
+    if (!isAuthor) {
+      return res.status(403).json({ success: false, message: 'Not authorized to edit this comment' });
+    }
+    
+    const { text } = req.body;
+    if (!text?.trim()) {
+      return res.status(400).json({ success: false, message: 'Comment text is required' });
+    }
+
+    comment.text = text.trim();
+    comment.editedAt = new Date();
+    await task.save();
+
+    await task.populate('comments.user', 'name email avatar');
+    const updatedComment = task.comments.id(commentId);
+
+    res.json({ success: true, comment: updatedComment });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to update comment' });
+  }
+};
+
+/**
  * DELETE /api/projects/:projectId/tasks/:taskId/comments/:commentId
  * Delete a comment. Author or admin can delete.
  */

@@ -40,6 +40,7 @@ router.route('/:projectId/tasks/:taskId/comments')
   .post(task.addComment);
 
 router.route('/:projectId/tasks/:taskId/comments/:commentId')
+  .patch(task.updateComment)
   .delete(task.deleteComment);
 
 module.exports = router;
