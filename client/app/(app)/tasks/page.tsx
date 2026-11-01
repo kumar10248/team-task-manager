@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth-context';
 import { tasksApi } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
+import { TasksTableSkeleton } from '@/components/Skeletons';
 import { CheckSquare, Filter } from 'lucide-react';
 
 /* ================= TYPES ================= */
@@ -107,68 +108,72 @@ export default function MyTasksPage(): ReactElement {
     (t) => t.dueDate && t.status !== 'done' && new Date() > new Date(t.dueDate)
   );
 
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
+        <Sidebar />
+        <TasksTableSkeleton />
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)', position: 'relative' }}>
       <Sidebar />
       <main style={{ flex: 1, padding: '40px 48px', overflow: 'auto', position: 'relative', zIndex: 1 }}>
-        
         {/* Subtle background glow */}
         <div style={{ position:'absolute', top:'-10%', left:'50%', transform:'translateX(-50%)', width:'60vw', height:'40vw', background:'radial-gradient(circle, rgba(192, 132, 252, 0.05) 0%, transparent 60%)', filter:'blur(80px)', zIndex:-1, pointerEvents:'none' }} />
 
         <div className="animate-fade-in">
           {/* Header */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 40 }}>
-            <div>
-              <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: 13, fontWeight: 500, color: 'var(--accent-secondary)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
-                Personal
-              </p>
-              <h1 style={{ fontFamily: 'Fraunces, serif', fontSize: 36, fontWeight: 400, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
-                My Tasks
-              </h1>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 40 }}>
+              <div>
+                <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: 13, fontWeight: 500, color: 'var(--accent-secondary)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+                  Personal
+                </p>
+                <h1 style={{ fontFamily: 'Fraunces, serif', fontSize: 36, fontWeight: 400, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
+                  My Tasks
+                </h1>
+              </div>
+              <div style={{ display: 'flex', gap: 16, alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.05)', padding: '12px 16px', borderRadius: 12, backdropFilter: 'blur(20px)' }}>
+                <Filter size={16} color="var(--text-secondary)" />
+                <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)' }} />
+                <select
+                  value={filter.status}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                    setFilter({ ...filter, status: e.target.value as TaskStatus | '' })
+                  }
+                  style={{ width: 'auto', padding: '6px 12px', fontSize: 13, fontFamily: 'Outfit, sans-serif', background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', outline: 'none' }}
+                >
+                  <option value="" style={{ background: '#0a0a0f', color: '#fff' }}>All Statuses</option>
+                  <option value="todo" style={{ background: '#0a0a0f', color: '#fff' }}>To Do</option>
+                  <option value="in_progress" style={{ background: '#0a0a0f', color: '#fff' }}>In Progress</option>
+                  <option value="done" style={{ background: '#0a0a0f', color: '#fff' }}>Done</option>
+                </select>
+                <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)' }} />
+                <select
+                  value={filter.priority}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                    setFilter({ ...filter, priority: e.target.value as TaskPriority | '' })
+                  }
+                  style={{ width: 'auto', padding: '6px 12px', fontSize: 13, fontFamily: 'Outfit, sans-serif', background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', outline: 'none' }}
+                >
+                  <option value="" style={{ background: '#0a0a0f', color: '#fff' }}>All Priorities</option>
+                  {PRIORITIES.map((p) => <option key={p} value={p} style={{ background: '#0a0a0f', color: '#fff' }}>{p}</option>)}
+                </select>
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: 16, alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.05)', padding: '12px 16px', borderRadius: 12, backdropFilter: 'blur(20px)' }}>
-              <Filter size={16} color="var(--text-secondary)" />
-              <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)' }} />
-              <select
-                value={filter.status}
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                  setFilter({ ...filter, status: e.target.value as TaskStatus | '' })
-                }
-                style={{ width: 'auto', padding: '6px 12px', fontSize: 13, fontFamily: 'Outfit, sans-serif', background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', outline: 'none' }}
-              >
-                <option value="" style={{ background: '#0a0a0f', color: '#fff' }}>All Statuses</option>
-                <option value="todo" style={{ background: '#0a0a0f', color: '#fff' }}>To Do</option>
-                <option value="in_progress" style={{ background: '#0a0a0f', color: '#fff' }}>In Progress</option>
-                <option value="done" style={{ background: '#0a0a0f', color: '#fff' }}>Done</option>
-              </select>
-              <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)' }} />
-              <select
-                value={filter.priority}
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                  setFilter({ ...filter, priority: e.target.value as TaskPriority | '' })
-                }
-                style={{ width: 'auto', padding: '6px 12px', fontSize: 13, fontFamily: 'Outfit, sans-serif', background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', outline: 'none' }}
-              >
-                <option value="" style={{ background: '#0a0a0f', color: '#fff' }}>All Priorities</option>
-                {PRIORITIES.map((p) => <option key={p} value={p} style={{ background: '#0a0a0f', color: '#fff' }}>{p}</option>)}
-              </select>
-            </div>
-          </div>
 
-          {/* Overdue banner */}
-          {overdue.length > 0 && (
-            <div style={{ background: 'rgba(248, 113, 113, 0.08)', border: '1px solid rgba(248, 113, 113, 0.2)', borderRadius: 12, padding: '16px 20px', marginBottom: 24, fontFamily: 'Outfit, sans-serif', fontSize: 14, fontWeight: 500, color: '#f87171', display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#f87171', boxShadow: '0 0 10px #f87171' }} />
-              You have {overdue.length} task{overdue.length > 1 ? 's that are' : ' that is'} overdue!
-            </div>
-          )}
+            {/* Overdue banner */}
+            {overdue.length > 0 && (
+              <div style={{ background: 'rgba(248, 113, 113, 0.08)', border: '1px solid rgba(248, 113, 113, 0.2)', borderRadius: 12, padding: '16px 20px', marginBottom: 24, fontFamily: 'Outfit, sans-serif', fontSize: 14, fontWeight: 500, color: '#f87171', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#f87171', boxShadow: '0 0 10px #f87171' }} />
+                You have {overdue.length} task{overdue.length > 1 ? 's that are' : ' that is'} overdue!
+              </div>
+            )}
 
-          {/* Body */}
-          {loading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}>
-              <div style={{ width: 24, height: 24, borderRadius: '50%', border: '2px solid var(--bg-border)', borderTopColor: 'var(--accent-secondary)', animation: 'spin 1s linear infinite' }} />
-            </div>
-          ) : filtered.length === 0 ? (
+            {/* Body */}
+            {filtered.length === 0 ? (
             <div className="glass-panel" style={{ textAlign: 'center', padding: '80px 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div style={{ width: 64, height: 64, borderRadius: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
                 <CheckSquare size={32} color="var(--text-muted)" />

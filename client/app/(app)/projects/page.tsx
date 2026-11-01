@@ -8,6 +8,7 @@ import type { CreateProjectPayload } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import Modal from '@/components/Model';
+import { ProjectsSkeleton } from '@/components/Skeletons';
 import { Plus, FolderKanban, Trash2, ArrowRight } from 'lucide-react';
 
 interface TaskStats { total: number; done: number }
@@ -169,6 +170,15 @@ export default function ProjectsPage(): ReactElement {
     } catch (err) { toast(err instanceof Error ? err.message : 'Error', 'error'); }
   };
 
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
+        <Sidebar />
+        <ProjectsSkeleton />
+      </div>
+    );
+  }
+
   return (
     <div style={{ display:'flex', minHeight:'100vh', background:'var(--bg-base)', position: 'relative' }}>
       <Sidebar />
@@ -188,11 +198,7 @@ export default function ProjectsPage(): ReactElement {
             </button>
           </div>
 
-          {loading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}>
-              <div style={{ width: 24, height: 24, borderRadius: '50%', border: '2px solid var(--bg-border)', borderTopColor: 'var(--accent-primary)', animation: 'spin 1s linear infinite' }} />
-            </div>
-          ) : projects.length === 0 ? (
+          {projects.length === 0 ? (
             <div className="glass-panel" style={{ textAlign:'center', padding:'80px 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div style={{ width: 64, height: 64, borderRadius: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
                 <FolderKanban size={32} color="var(--text-muted)" />

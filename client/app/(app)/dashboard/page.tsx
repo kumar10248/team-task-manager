@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { dashboardApi, AttendanceLog } from '@/lib/api';
 import Sidebar from '@/components/Sidebar';
+import { DashboardSkeleton } from '@/components/Skeletons';
 import { CheckCircle2, Clock, AlertTriangle, Layers, TrendingUp, Users, LucideIcon, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 
@@ -155,12 +156,9 @@ export default function DashboardPage(): ReactElement {
 
   if (authLoading || loading) {
     return (
-      <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-base)' }}>
+      <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
         <Sidebar />
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ width:24, height:24, borderRadius:'50%', border:'2px solid var(--bg-border)', borderTopColor:'var(--accent-primary)', animation:'spin 1s linear infinite' }} />
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        </div>
+        <DashboardSkeleton />
       </div>
     );
   }

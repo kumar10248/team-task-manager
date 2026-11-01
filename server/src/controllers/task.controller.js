@@ -122,8 +122,7 @@ exports.createTask = async (req, res) => {
 /**
  * GET /api/projects/:projectId/tasks
  * List tasks in a project.
- * Members see only their assigned tasks.
- * Admins see all tasks.
+ * All project members and admins can view team tasks.
  * Query params: status, priority, assignedTo, page, limit
  */
 exports.getTasks = async (req, res) => {
@@ -137,12 +136,8 @@ exports.getTasks = async (req, res) => {
     const { status, priority, assignedTo, page = 1, limit = 20 } = req.query;
     const filter = { project: projectId };
 
-    // Members can only see their own tasks
-    if (membership.role === 'member') {
-      filter.assignedTo = req.user._id;
-    } else {
-      if (assignedTo) filter.assignedTo = assignedTo;
-    }
+    // Support optional filter by assignee
+    if (assignedTo) filter.assignedTo = assignedTo;
 
     if (status) filter.status = status;
     if (priority) filter.priority = priority;
@@ -193,14 +188,6 @@ exports.getTask = async (req, res) => {
       .lean();
 
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
-
-    // Members can only view their own tasks
-    if (
-      membership.role === 'member' &&
-      task.assignedTo?._id.toString() !== req.user._id.toString()
-    ) {
-      return res.status(403).json({ success: false, message: 'Access denied' });
-    }
 
     res.json({ success: true, task });
   } catch (err) {
@@ -328,13 +315,6 @@ exports.addComment = async (req, res) => {
 
     const task = await Task.findOne({ _id: taskId, project: projectId });
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
-
-    if (
-      membership.role === 'member' &&
-      task.assignedTo?.toString() !== req.user._id.toString()
-    ) {
-      return res.status(403).json({ success: false, message: 'Access denied' });
-    }
 
     const { text } = req.body;
     if (!text?.trim()) {
