@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/auth-context';
 import { dashboardApi, AttendanceLog } from '@/lib/api';
 import Sidebar from '@/components/Sidebar';
 import { DashboardSkeleton } from '@/components/Skeletons';
-import { CheckCircle2, Clock, AlertTriangle, Layers, TrendingUp, Users, LucideIcon, ArrowRight } from 'lucide-react';
+import { CheckCircle2, Clock, AlertTriangle, Layers, TrendingUp, Users, LucideIcon, ArrowRight, Download } from 'lucide-react';
 import Link from 'next/link';
 
 /* ================= TYPES ================= */
@@ -153,6 +153,59 @@ export default function DashboardPage(): ReactElement {
       active = false;
     };
   }, [user]);
+
+  const exportAttendanceCSV = () => {
+    if (!attendanceLogs || attendanceLogs.length === 0) return;
+
+    const headers = [
+      'User Name',
+      'User Email',
+      'Clock In',
+      'Clock Out',
+      'Duration (Minutes)',
+      'Duration (Formatted)',
+      'Auto Clocked Out',
+    ];
+
+    const escapeCSV = (val: string | number | boolean | null | undefined): string => {
+      const str = String(val ?? '');
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const rows = attendanceLogs.map((log) => {
+      const name = log.user?.name || 'Team Member';
+      const email = log.user?.email || 'N/A';
+      const clockIn = new Date(log.clockIn).toLocaleString();
+      const clockOut = new Date(log.clockOut).toLocaleString();
+      const durationMins = log.durationMinutes ?? 0;
+      const formattedDuration = `${Math.floor(durationMins / 60)}h ${durationMins % 60}m`;
+      const autoClocked = log.autoClockedOut ? 'Yes (14h cap)' : 'No';
+
+      return [
+        escapeCSV(name),
+        escapeCSV(email),
+        escapeCSV(clockIn),
+        escapeCSV(clockOut),
+        escapeCSV(durationMins),
+        escapeCSV(formattedDuration),
+        escapeCSV(autoClocked),
+      ].join(',');
+    });
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `attendance_report_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   if (authLoading || loading) {
     return (
@@ -403,13 +456,39 @@ export default function DashboardPage(): ReactElement {
 
         {attendanceLogs.length > 0 && (
           <div className="glass-panel" style={{ padding: 32, marginTop: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
-              <div style={{ width:32, height:32, borderRadius:8, background:'rgba(255,255,255,0.05)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                <Clock size={16} color="var(--accent-primary)" />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width:32, height:32, borderRadius:8, background:'rgba(255,255,255,0.05)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <Clock size={16} color="var(--accent-primary)" />
+                </div>
+                <div>
+                  <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 20, fontWeight:400, color: 'var(--text-primary)' }}>Attendance History</h2>
+                  <p style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)' }}>Recent shift records across your project teams</p>
+                </div>
               </div>
-              <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 20, fontWeight:400, color: 'var(--text-primary)' }}>Attendance History</h2>
+
+              <button
+                onClick={exportAttendanceCSV}
+                className="btn-secondary"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 16px',
+                  fontSize: 13,
+                  fontFamily: 'Outfit, sans-serif',
+                  fontWeight: 500,
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <Download size={15} />
+                Export CSV
+              </button>
             </div>
-            <div style={{ maxHeight: 300, overflowY: 'auto', paddingRight: 8 }}>
+
+            <div style={{ maxHeight: 360, overflowY: 'auto', paddingRight: 8 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, fontFamily: 'Outfit, sans-serif' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', color: 'var(--text-secondary)', textAlign: 'left' }}>
@@ -417,24 +496,71 @@ export default function DashboardPage(): ReactElement {
                     <th style={{ padding: '12px 16px', fontWeight: 500 }}>Clock In</th>
                     <th style={{ padding: '12px 16px', fontWeight: 500 }}>Clock Out</th>
                     <th style={{ padding: '12px 16px', fontWeight: 500 }}>Duration</th>
+                    <th style={{ padding: '12px 16px', fontWeight: 500, textAlign: 'right' }}>Type</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {attendanceLogs.map((log) => (
-                    <tr key={log._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
-                      <td style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600 }}>
-                          {log.user.name?.[0]?.toUpperCase()}
-                        </div>
-                        <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{log.user.name}</span>
-                      </td>
-                      <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>{new Date(log.clockIn).toLocaleString()}</td>
-                      <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>{new Date(log.clockOut).toLocaleString()}</td>
-                      <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>
-                        {Math.floor(log.durationMinutes / 60)}h {log.durationMinutes % 60}m
-                      </td>
-                    </tr>
-                  ))}
+                  {attendanceLogs.map((log) => {
+                    const userName = log.user?.name || 'Team Member';
+                    const userInitial = userName[0]?.toUpperCase() || 'U';
+                    const userEmail = log.user?.email || '';
+
+                    return (
+                      <tr key={log._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                        <td style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, flexShrink: 0 }}>
+                            {userInitial}
+                          </div>
+                          <div>
+                            <div style={{ color: 'var(--text-primary)', fontWeight: 500, fontSize: 14 }}>{userName}</div>
+                            {userEmail && <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>{userEmail}</div>}
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>{new Date(log.clockIn).toLocaleString()}</td>
+                        <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>{new Date(log.clockOut).toLocaleString()}</td>
+                        <td style={{ padding: '12px 16px', color: 'var(--text-primary)', fontWeight: 500 }}>
+                          {Math.floor(log.durationMinutes / 60)}h {log.durationMinutes % 60}m
+                        </td>
+                        <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                          {log.autoClockedOut ? (
+                            <span 
+                              style={{ 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                gap: 4, 
+                                padding: '3px 8px', 
+                                borderRadius: 6, 
+                                fontSize: 11, 
+                                fontWeight: 500, 
+                                background: 'rgba(251, 191, 36, 0.1)', 
+                                color: '#fbbf24', 
+                                border: '1px solid rgba(251, 191, 36, 0.2)' 
+                              }}
+                              title="Session exceeded 14h threshold and was automatically capped"
+                            >
+                              Auto (14h cap)
+                            </span>
+                          ) : (
+                            <span 
+                              style={{ 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                padding: '3px 8px', 
+                                borderRadius: 6, 
+                                fontSize: 11, 
+                                fontWeight: 500, 
+                                background: 'rgba(74, 222, 128, 0.1)', 
+                                color: '#4ade80', 
+                                border: '1px solid rgba(74, 222, 128, 0.2)' 
+                              }}
+                            >
+                              Standard
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

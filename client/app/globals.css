@@ -295,3 +295,28 @@ input:checked + .toggle-slider:before {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+/* Kanban Board & Responsive Layout */
+.kanban-board-container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .kanban-board-container {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 16px;
+    gap: 16px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .kanban-column {
+    min-width: 84vw;
+    max-width: 84vw;
+    scroll-snap-align: center;
+    flex-shrink: 0;
+  }
+}

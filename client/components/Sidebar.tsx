@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '../lib/auth-context';
@@ -20,6 +20,23 @@ export default function Sidebar() {
   const { user, logout, setUser } = useAuth();
   const pathname = usePathname();
   const [notifsOpen, setNotifsOpen] = useState(false);
+  const [now, setNow] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    if (!user?.isClockedIn || !user?.lastClockIn) return;
+    const interval = setInterval(() => setNow(Date.now()), 5000); // live ticker update every 5s
+    return () => clearInterval(interval);
+  }, [user?.isClockedIn, user?.lastClockIn]);
+
+  let durationStr = '';
+  if (user?.isClockedIn && user?.lastClockIn) {
+    const clockInTime = new Date(user.lastClockIn).getTime();
+    const elapsedMs = Math.max(0, now - clockInTime);
+    const totalMinutes = Math.floor(elapsedMs / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    durationStr = hours >= 14 ? '14h cap' : `${hours}h ${mins}m`;
+  }
 
   return (
     <>
@@ -87,7 +104,19 @@ export default function Sidebar() {
           <div style={{ display:'flex', gap: 8, marginBottom: 8 }}>
             <button 
               className={user?.isClockedIn ? "btn-secondary" : "btn-primary"} 
-              style={{ flex: 1, padding: '8px', fontSize: 13, justifyContent: 'center', transition: 'all 0.3s' }}
+              style={{ 
+                flex: 1, 
+                padding: '8px 10px', 
+                fontSize: 12, 
+                fontFamily: 'Outfit, sans-serif',
+                fontWeight: 500,
+                justifyContent: 'center', 
+                transition: 'all 0.3s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                letterSpacing: '0.01em'
+              }}
               onClick={async () => {
                 try {
                   const res = user?.isClockedIn ? await authApi.clockOut() : await authApi.clockIn();
@@ -97,7 +126,22 @@ export default function Sidebar() {
                 } catch {}
               }}
             >
-              {user?.isClockedIn ? 'Clock Out' : 'Clock In'}
+              {user?.isClockedIn && (
+                <span 
+                  style={{ 
+                    width: 7, 
+                    height: 7, 
+                    borderRadius: '50%', 
+                    background: '#4ade80', 
+                    boxShadow: '0 0 8px #4ade80',
+                    display: 'inline-block',
+                    flexShrink: 0
+                  }} 
+                />
+              )}
+              {user?.isClockedIn 
+                ? `Clock Out (${durationStr || '0h 0m'})` 
+                : 'Clock In'}
             </button>
           </div>
 

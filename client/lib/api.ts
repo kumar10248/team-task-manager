@@ -193,6 +193,7 @@ export interface AttendanceLog {
   clockIn: string;
   clockOut: string;
   durationMinutes: number;
+  autoClockedOut?: boolean;
 }
 
 export const dashboardApi = {

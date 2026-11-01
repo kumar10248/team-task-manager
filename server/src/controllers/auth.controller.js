@@ -80,6 +80,41 @@ exports.login = async (req, res) => {
   }
 };
 
+const MAX_SHIFT_HOURS = 14;
+const MAX_SHIFT_MINUTES = MAX_SHIFT_HOURS * 60; // 840 minutes
+const MAX_SHIFT_MS = MAX_SHIFT_MINUTES * 60 * 1000;
+
+/**
+ * Checks if a clocked-in user has exceeded MAX_SHIFT_HOURS (14 hours).
+ * If exceeded, automatically closes the shift, creates an AttendanceLog with autoClockedOut: true,
+ * and sets isClockedIn: false.
+ */
+const autoClockOutIfExceeded = async (user) => {
+  if (!user || !user.isClockedIn || !user.lastClockIn) return user;
+
+  const clockInTime = new Date(user.lastClockIn);
+  const elapsedMs = Date.now() - clockInTime.getTime();
+
+  if (elapsedMs > MAX_SHIFT_MS) {
+    const clockOutTime = new Date(clockInTime.getTime() + MAX_SHIFT_MS);
+    await AttendanceLog.create({
+      user: user._id,
+      clockIn: clockInTime,
+      clockOut: clockOutTime,
+      durationMinutes: MAX_SHIFT_MINUTES,
+      autoClockedOut: true,
+    });
+
+    user.isClockedIn = false;
+    user.lastClockOut = clockOutTime;
+    await user.save({ validateBeforeSave: false });
+  }
+
+  return user;
+};
+
+exports.autoClockOutIfExceeded = autoClockOutIfExceeded;
+
 /**
  * GET /api/auth/me
  * Returns the currently authenticated user.
@@ -88,7 +123,13 @@ exports.getMe = async (req, res) => {
   try {
     // req.user is already fetched in protect middleware
     if (!req.user) return res.status(404).json({ success: false, message: 'User not found' });
-    res.json({ success: true, user: typeof req.user.toPublicJSON === 'function' ? req.user.toPublicJSON() : req.user });
+
+    let user = req.user;
+    if (user.isClockedIn) {
+      user = await autoClockOutIfExceeded(user);
+    }
+
+    res.json({ success: true, user: typeof user.toPublicJSON === 'function' ? user.toPublicJSON() : user });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Server error' });
   }
@@ -152,8 +193,13 @@ exports.changePassword = async (req, res) => {
  */
 exports.clockIn = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id);
+    let user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    // If user was previously clocked in and exceeded 14h, auto-close old shift first
+    if (user.isClockedIn) {
+      user = await autoClockOutIfExceeded(user);
+    }
 
     user.isClockedIn = true;
     user.lastClockIn = new Date();
@@ -175,18 +221,27 @@ exports.clockOut = async (req, res) => {
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
     if (user.lastClockIn) {
-      const clockOutTime = new Date();
-      const durationMinutes = Math.floor((clockOutTime - new Date(user.lastClockIn)) / 60000);
+      const now = new Date();
+      const clockInTime = new Date(user.lastClockIn);
+      const rawDurationMinutes = Math.floor((now.getTime() - clockInTime.getTime()) / 60000);
+      const isAutoCapped = rawDurationMinutes > MAX_SHIFT_MINUTES;
+      const durationMinutes = isAutoCapped ? MAX_SHIFT_MINUTES : Math.max(0, rawDurationMinutes);
+      const clockOutTime = isAutoCapped
+        ? new Date(clockInTime.getTime() + MAX_SHIFT_MS)
+        : now;
+
       await AttendanceLog.create({
         user: user._id,
-        clockIn: user.lastClockIn,
+        clockIn: clockInTime,
         clockOut: clockOutTime,
         durationMinutes,
+        autoClockedOut: isAutoCapped,
       });
+
+      user.lastClockOut = clockOutTime;
     }
 
     user.isClockedIn = false;
-    user.lastClockOut = new Date();
     await user.save({ validateBeforeSave: false });
 
     res.json({ success: true, user: user.toPublicJSON() });

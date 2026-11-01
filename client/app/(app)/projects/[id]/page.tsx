@@ -12,7 +12,8 @@ import { BoardSkeleton } from '@/components/Skeletons';
 import { formatTimeAgo } from '@/lib/format';
 import {
   Plus, ArrowLeft, Trash2, UserPlus, Pencil,
-  MessageSquare, CornerDownLeft
+  MessageSquare, CornerDownLeft, GripVertical,
+  Search, X, User
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -77,6 +78,7 @@ interface TaskCardProps {
 }
 
 function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelete, onOpenComments }: TaskCardProps) {
+  const [isDragging, setIsDragging] = useState(false);
   const isOverdue = !!task.dueDate && task.status !== 'done' && new Date() > new Date(task.dueDate);
   const pColor = PRIORITY_COLORS[task.priority] || 'var(--accent-primary)';
   const isAssignedToMe = currentUserId ? task.assignedTo?._id === currentUserId : true;
@@ -85,19 +87,34 @@ function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelet
   return (
     <div
       className="glass-panel"
+      draggable={canUpdateStatus}
+      onDragStart={(e) => {
+        if (!canUpdateStatus) return;
+        e.dataTransfer.setData('text/plain', task._id);
+        e.dataTransfer.setData('source-status', task.status);
+        e.dataTransfer.effectAllowed = 'move';
+        setIsDragging(true);
+      }}
+      onDragEnd={() => setIsDragging(false)}
       style={{ 
         padding: 16, 
         marginBottom: 16, 
-        transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)', 
+        transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)', 
         position: 'relative',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        cursor: canUpdateStatus ? (isDragging ? 'grabbing' : 'grab') : 'default',
+        opacity: isDragging ? 0.35 : 1,
+        transform: isDragging ? 'scale(0.97)' : undefined,
+        borderColor: isDragging ? pColor : undefined,
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.transform = 'translateY(-4px)';
-        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+        if (isDragging) return;
+        e.currentTarget.style.transform = 'translateY(-3px)';
+        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
         e.currentTarget.style.boxShadow = `0 8px 30px -10px ${pColor}30`;
       }}
       onMouseLeave={(e) => {
+        if (isDragging) return;
         e.currentTarget.style.transform = 'translateY(0)';
         e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)';
         e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
@@ -108,9 +125,16 @@ function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelet
 
       {/* Title + priority */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-        <span style={{ fontSize: 14, fontFamily: 'Outfit, sans-serif', color: 'var(--text-primary)', fontWeight: 500, flex: 1, marginRight: 8, lineHeight: 1.4 }}>
-          {task.title}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, flex: 1, marginRight: 8 }}>
+          {canUpdateStatus && (
+            <span style={{ color: 'var(--text-muted)', opacity: 0.45, cursor: 'grab', display: 'flex', paddingTop: 2 }} title="Drag to move card">
+              <GripVertical size={14} />
+            </span>
+          )}
+          <span style={{ fontSize: 14, fontFamily: 'Outfit, sans-serif', color: 'var(--text-primary)', fontWeight: 500, lineHeight: 1.4 }}>
+            {task.title}
+          </span>
+        </div>
         <span className={`badge badge-${task.priority}`}>{task.priority}</span>
       </div>
 
@@ -204,6 +228,131 @@ function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelet
             </>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── KanbanColumn ─────────────────────────────────────────────────────────────
+
+interface KanbanColumnProps {
+  col: { key: TaskStatus; label: string; color: string };
+  tasks: Task[];
+  count: number;
+  myRole: 'admin' | 'member';
+  currentUserId?: string;
+  onDropTask: (taskId: string, targetStatus: TaskStatus) => void;
+  onStatusChange: (taskId: string, status: TaskStatus) => void;
+  onEdit: (task: Task) => void;
+  onDelete: (task: Task) => void;
+  onOpenComments: (task: Task) => void;
+}
+
+function KanbanColumn({
+  col,
+  tasks,
+  count,
+  myRole,
+  currentUserId,
+  onDropTask,
+  onStatusChange,
+  onEdit,
+  onDelete,
+  onOpenComments,
+}: KanbanColumnProps) {
+  const [isOver, setIsOver] = useState(false);
+
+  return (
+    <div
+      className="kanban-column"
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (!isOver) setIsOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          setIsOver(false);
+        }
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsOver(false);
+        const taskId = e.dataTransfer.getData('text/plain');
+        if (taskId) {
+          onDropTask(taskId, col.key);
+        }
+      }}
+      style={{
+        background: isOver ? 'rgba(255,255,255,0.035)' : 'rgba(255,255,255,0.01)',
+        borderRadius: 16,
+        padding: 16,
+        border: isOver ? `2px dashed ${col.color}` : '1px solid rgba(255,255,255,0.03)',
+        boxShadow: isOver ? `0 0 24px -4px ${col.color}35` : 'none',
+        transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+        minHeight: 460,
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      {/* Column Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, padding: '0 4px' }}>
+        <div style={{ width: 10, height: 10, borderRadius: '50%', background: col.color, boxShadow: `0 0 10px ${col.color}` }} />
+        <span style={{ fontSize: 13, fontFamily: 'Outfit, sans-serif', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-primary)' }}>
+          {col.label}
+        </span>
+        <span
+          style={{
+            fontSize: 12,
+            fontFamily: 'Outfit, sans-serif',
+            fontWeight: 600,
+            color: count > 0 ? 'var(--text-primary)' : 'var(--text-muted)',
+            marginLeft: 'auto',
+            background: isOver ? `${col.color}25` : 'rgba(255,255,255,0.05)',
+            padding: '2px 10px',
+            borderRadius: 12,
+            transition: 'all 0.2s',
+          }}
+        >
+          {count}
+        </span>
+      </div>
+
+      {/* Task Cards list */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {tasks.map((t) => (
+          <TaskCard
+            key={t._id}
+            task={t}
+            myRole={myRole}
+            currentUserId={currentUserId}
+            onStatusChange={onStatusChange}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onOpenComments={onOpenComments}
+          />
+        ))}
+
+        {tasks.length === 0 && (
+          <div
+            style={{
+              flex: 1,
+              minHeight: 120,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 13,
+              fontFamily: 'Outfit, sans-serif',
+              color: isOver ? col.color : 'var(--text-muted)',
+              border: isOver ? `1px dashed ${col.color}` : '1px dashed rgba(255,255,255,0.05)',
+              borderRadius: 12,
+              background: isOver ? `${col.color}08` : 'transparent',
+              transition: 'all 0.2s',
+            }}
+          >
+            {isOver ? `Drop to move to ${col.label}` : 'No tasks in this stage'}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -672,6 +821,21 @@ export default function ProjectDetailPage() {
   const [commentTask, setCommentTask]           = useState<Task | null>(null);
   const [editingMember, setEditingMember]       = useState<ProjectMember | null>(null);
 
+  // Filters & Search
+  const [searchQuery, setSearchQuery]         = useState('');
+  const [filterPriority, setFilterPriority]   = useState('');
+  const [filterAssignee, setFilterAssignee]   = useState('');
+  const [onlyMyTasks, setOnlyMyTasks]         = useState(false);
+
+  const isFiltering = !!(searchQuery.trim() || filterPriority || filterAssignee || onlyMyTasks);
+
+  const resetFilters = () => {
+    setSearchQuery('');
+    setFilterPriority('');
+    setFilterAssignee('');
+    setOnlyMyTasks(false);
+  };
+
   // Forms
   const [taskForm, setTaskForm]     = useState<TaskFormState>(EMPTY_TASK_FORM);
   const [memberForm, setMemberForm] = useState({ email: '', role: 'member' as 'admin' | 'member' });
@@ -730,9 +894,33 @@ export default function ProjectDetailPage() {
 
   // ── Task helpers ────────────────────────────────────────────────────────────
 
-  /** Recompute task stats locally so the board header counts update instantly */
+  const filteredTasks = tasks.filter((t) => {
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      const matchTitle = t.title.toLowerCase().includes(q);
+      const matchDesc  = t.description ? t.description.toLowerCase().includes(q) : false;
+      if (!matchTitle && !matchDesc) return false;
+    }
+    if (onlyMyTasks) {
+      const isAssignedToMe = user?._id ? t.assignedTo?._id === user._id : false;
+      if (!isAssignedToMe) return false;
+    }
+    if (filterPriority && t.priority !== filterPriority) {
+      return false;
+    }
+    if (filterAssignee) {
+      if (filterAssignee === 'unassigned') {
+        if (t.assignedTo) return false;
+      } else if (t.assignedTo?._id !== filterAssignee) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  /** Recompute task stats locally based on filtered tasks so the board header counts update instantly */
   const tasksByStatus = STATUS_COLS.reduce<Record<string, Task[]>>((acc, col) => {
-    acc[col.key] = tasks.filter((t) => t.status === col.key);
+    acc[col.key] = filteredTasks.filter((t) => t.status === col.key);
     return acc;
   }, {});
 
@@ -784,8 +972,16 @@ export default function ProjectDetailPage() {
   };
 
   const handleStatusChange = async (taskId: string, status: TaskStatus) => {
+    const prevTask = tasks.find((t) => t._id === taskId);
+    if (!prevTask || prevTask.status === status) return;
+
     // Optimistic update
-    setTasks((prev) => prev.map((t) => t._id === taskId ? { ...t, status } : t));
+    setTasks((prev) => prev.map((t) => (t._id === taskId ? { ...t, status } : t)));
+
+    if (status === 'done') {
+      toast('Task completed! 🎉');
+    }
+
     try {
       await tasksApi.update(id, taskId, { status });
     } catch (err) {
@@ -990,40 +1186,189 @@ export default function ProjectDetailPage() {
             ))}
           </div>
 
+          {/* ── Search & Filter Bar (shown on Board & List tabs) ── */}
+          {(tab === 'board' || tab === 'list') && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                flexWrap: 'wrap',
+                marginBottom: 24,
+                padding: '12px 16px',
+                background: 'rgba(255,255,255,0.015)',
+                border: '1px solid rgba(255,255,255,0.05)',
+                borderRadius: 14,
+                backdropFilter: 'blur(16px)',
+              }}
+            >
+              {/* Search input */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  borderRadius: 10,
+                  padding: '6px 12px',
+                  minWidth: 220,
+                  flex: '1 1 220px',
+                  maxWidth: 340,
+                }}
+              >
+                <Search size={15} color="var(--text-muted)" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search tasks by title or details…"
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    outline: 'none',
+                    fontSize: 13,
+                    fontFamily: 'Outfit, sans-serif',
+                    color: 'var(--text-primary)',
+                    width: '100%',
+                  }}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, display: 'flex' }}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              {/* Only My Tasks toggle */}
+              <button
+                type="button"
+                onClick={() => setOnlyMyTasks((prev) => !prev)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 7,
+                  padding: '7px 14px',
+                  borderRadius: 10,
+                  fontSize: 12,
+                  fontFamily: 'Outfit, sans-serif',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  background: onlyMyTasks ? 'rgba(129, 140, 248, 0.15)' : 'rgba(255,255,255,0.03)',
+                  border: onlyMyTasks ? '1px solid var(--accent-primary)' : '1px solid rgba(255,255,255,0.06)',
+                  color: onlyMyTasks ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  boxShadow: onlyMyTasks ? '0 0 12px rgba(129, 140, 248, 0.25)' : 'none',
+                }}
+              >
+                <User size={13} color={onlyMyTasks ? 'var(--accent-primary)' : 'currentColor'} />
+                My Tasks
+              </button>
+
+              {/* Priority filter */}
+              <select
+                value={filterPriority}
+                onChange={(e) => setFilterPriority(e.target.value)}
+                style={{
+                  padding: '7px 12px',
+                  fontSize: 12,
+                  fontFamily: 'Outfit, sans-serif',
+                  background: filterPriority ? 'rgba(129, 140, 248, 0.1)' : 'rgba(255,255,255,0.03)',
+                  border: filterPriority ? '1px solid rgba(129, 140, 248, 0.4)' : '1px solid rgba(255,255,255,0.06)',
+                  borderRadius: 10,
+                  color: filterPriority ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  width: 'auto',
+                }}
+              >
+                <option value="" style={{ background: '#0a0a0f', color: '#fff' }}>All Priorities</option>
+                {PRIORITIES.map((p) => (
+                  <option key={p} value={p} style={{ background: '#0a0a0f', color: '#fff' }}>
+                    {p.charAt(0).toUpperCase() + p.slice(1)} Priority
+                  </option>
+                ))}
+              </select>
+
+              {/* Assignee filter */}
+              {members.length > 0 && (
+                <select
+                  value={filterAssignee}
+                  onChange={(e) => setFilterAssignee(e.target.value)}
+                  style={{
+                    padding: '7px 12px',
+                    fontSize: 12,
+                    fontFamily: 'Outfit, sans-serif',
+                    background: filterAssignee ? 'rgba(129, 140, 248, 0.1)' : 'rgba(255,255,255,0.03)',
+                    border: filterAssignee ? '1px solid rgba(129, 140, 248, 0.4)' : '1px solid rgba(255,255,255,0.06)',
+                    borderRadius: 10,
+                    color: filterAssignee ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    width: 'auto',
+                  }}
+                >
+                  <option value="" style={{ background: '#0a0a0f', color: '#fff' }}>All Assignees</option>
+                  <option value="unassigned" style={{ background: '#0a0a0f', color: '#fff' }}>Unassigned</option>
+                  {members.map((m) => (
+                    <option key={m.user._id} value={m.user._id} style={{ background: '#0a0a0f', color: '#fff' }}>
+                      {m.user.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {/* Clear filters & match count */}
+              {isFiltering && (
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)' }}>
+                    Showing {filteredTasks.length} of {tasks.length}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      fontFamily: 'Outfit, sans-serif',
+                      color: 'var(--accent-primary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '4px 8px',
+                      borderRadius: 6,
+                    }}
+                  >
+                    <X size={12} /> Clear filters
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ══ Board view ══ */}
           {tab === 'board' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 24, flex: 1, alignItems: 'start' }}>
-              {STATUS_COLS.map(({ key, label, color }) => (
-                <div key={key} style={{ background: 'rgba(255,255,255,0.01)', borderRadius: 16, padding: 16, border: '1px solid rgba(255,255,255,0.02)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, padding: '0 4px' }}>
-                    <div style={{ width: 10, height: 10, borderRadius: '50%', background: color, boxShadow: `0 0 10px ${color}` }} />
-                    <span style={{ fontSize: 13, fontFamily: 'Outfit, sans-serif', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-primary)' }}>{label}</span>
-                    {/* ← live count, updates when tasks change */}
-                    <span style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', fontWeight: 600, color: 'var(--text-secondary)', marginLeft: 'auto',
-                      background: 'rgba(255,255,255,0.05)', padding: '2px 10px', borderRadius: 12 }}>
-                      {tasksByStatus[key]?.length ?? 0}
-                    </span>
-                  </div>
-
-                  {tasksByStatus[key]?.map((t) => (
-                    <TaskCard
-                      key={t._id}
-                      task={t}
-                      myRole={myRole}
-                      currentUserId={user?._id}
-                      onStatusChange={handleStatusChange}
-                      onEdit={openEditTask}
-                      onDelete={setDeleteTaskTarget}
-                      onOpenComments={setCommentTask}
-                    />
-                  ))}
-
-                  {tasksByStatus[key]?.length === 0 && (
-                    <div style={{ padding: '40px 0', textAlign: 'center', fontSize: 13, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: 12 }}>
-                      No tasks
-                    </div>
-                  )}
-                </div>
+            <div className="kanban-board-container">
+              {STATUS_COLS.map((col) => (
+                <KanbanColumn
+                  key={col.key}
+                  col={col}
+                  tasks={tasksByStatus[col.key] || []}
+                  count={tasksByStatus[col.key]?.length ?? 0}
+                  myRole={myRole}
+                  currentUserId={user?._id}
+                  onDropTask={handleStatusChange}
+                  onStatusChange={handleStatusChange}
+                  onEdit={openEditTask}
+                  onDelete={setDeleteTaskTarget}
+                  onOpenComments={setCommentTask}
+                />
               ))}
             </div>
           )}
@@ -1040,9 +1385,26 @@ export default function ProjectDetailPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {tasks.length === 0 ? (
-                    <tr><td colSpan={7} style={{ padding: '60px', textAlign: 'center', fontSize: 14, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)' }}>No tasks yet. Create one to get started.</td></tr>
-                  ) : tasks.map((t) => {
+                  {filteredTasks.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} style={{ padding: '60px', textAlign: 'center', fontSize: 14, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)' }}>
+                        {isFiltering ? (
+                          <span>
+                            No tasks match your filters.{' '}
+                            <button
+                              type="button"
+                              onClick={resetFilters}
+                              style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer', textDecoration: 'underline' }}
+                            >
+                              Clear filters
+                            </button>
+                          </span>
+                        ) : (
+                          'No tasks yet. Create one to get started.'
+                        )}
+                      </td>
+                    </tr>
+                  ) : filteredTasks.map((t) => {
                     const isOverdue = !!t.dueDate && t.status !== 'done' && new Date() > new Date(t.dueDate);
                     const isAssignedToMe = user?._id ? t.assignedTo?._id === user._id : true;
                     const canUpdateStatus = myRole === 'admin' || isAssignedToMe;

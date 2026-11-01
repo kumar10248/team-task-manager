@@ -3,6 +3,8 @@ const Task = require('../models/Task');
 const Project = require('../models/Project');
 const ProjectMember = require('../models/ProjectMember');
 const AttendanceLog = require('../models/AttendanceLog');
+const User = require('../models/User');
+const { autoClockOutIfExceeded } = require('./auth.controller');
 
 /**
  * GET /api/dashboard
@@ -127,9 +129,9 @@ exports.getDashboard = async (req, res) => {
         },
       ]),
 
-      // 9. Team Attendance (for admin projects)
-      adminProjectIds.length > 0
-        ? ProjectMember.find({ project: { $in: adminProjectIds } })
+      // 9. Team Attendance across projects user belongs to
+      projectIds.length > 0
+        ? ProjectMember.find({ project: { $in: projectIds } })
             .populate('user', 'name email avatar isClockedIn lastClockIn lastClockOut')
             .lean()
         : Promise.resolve([]),
@@ -153,21 +155,33 @@ exports.getDashboard = async (req, res) => {
       taskStats: statsMap[p._id.toString()] || { todo: 0, in_progress: 0, done: 0, total: 0 },
     }));
 
-    // Deduplicate team attendance users
+    // Deduplicate team attendance users and handle auto-clockout if exceeded 14h
     const uniqueUsers = new Map();
-    teamMemberships.forEach((m) => {
+    for (const m of teamMemberships) {
       if (m.user && !uniqueUsers.has(m.user._id.toString())) {
-        uniqueUsers.set(m.user._id.toString(), {
-          _id: m.user._id,
-          name: m.user.name,
-          email: m.user.email,
-          avatar: m.user.avatar,
-          isClockedIn: m.user.isClockedIn,
-          lastClockIn: m.user.lastClockIn,
-          lastClockOut: m.user.lastClockOut,
+        let memberUser = m.user;
+        if (memberUser.isClockedIn && memberUser.lastClockIn) {
+          const elapsed = Date.now() - new Date(memberUser.lastClockIn).getTime();
+          if (elapsed > 14 * 60 * 60 * 1000) {
+            const fullDoc = await User.findById(memberUser._id);
+            if (fullDoc && fullDoc.isClockedIn) {
+              await autoClockOutIfExceeded(fullDoc);
+              memberUser.isClockedIn = false;
+              memberUser.lastClockOut = fullDoc.lastClockOut;
+            }
+          }
+        }
+        uniqueUsers.set(memberUser._id.toString(), {
+          _id: memberUser._id,
+          name: memberUser.name,
+          email: memberUser.email,
+          avatar: memberUser.avatar,
+          isClockedIn: memberUser.isClockedIn,
+          lastClockIn: memberUser.lastClockIn,
+          lastClockOut: memberUser.lastClockOut,
         });
       }
-    });
+    }
     const teamAttendance = Array.from(uniqueUsers.values());
 
     // Normalize tasksByStatus and compute totalTasks without an extra countDocuments query
@@ -302,26 +316,37 @@ exports.getProjectDashboard = async (req, res) => {
 
 /**
  * GET /api/dashboard/attendance-logs
- * Detailed attendance logs for the user's team (or just themselves).
+ * Detailed attendance logs for the user's team across projects (or just themselves).
  */
 exports.getAttendanceLogs = async (req, res) => {
   try {
-    const memberships = await ProjectMember.find({ user: req.user._id, role: 'admin' }).lean();
-    const adminProjectIds = memberships.map((m) => m.project);
-    
+    const memberships = await ProjectMember.find({ user: req.user._id }).lean();
+    const projectIds = memberships.map((m) => m.project);
+
     let targetUsers = [req.user._id]; // at least the user themselves
-    
-    if (adminProjectIds.length > 0) {
-      const teamMemberships = await ProjectMember.find({ project: { $in: adminProjectIds } }).lean();
+
+    if (projectIds.length > 0) {
+      const teamMemberships = await ProjectMember.find({ project: { $in: projectIds } }).lean();
       targetUsers = [...new Set(teamMemberships.map((m) => m.user.toString()))];
     }
-    
+
+    // Auto-clockout any active users in target group who exceeded 14h
+    const expiredUsers = await User.find({
+      _id: { $in: targetUsers },
+      isClockedIn: true,
+      lastClockIn: { $lt: new Date(Date.now() - 14 * 60 * 60 * 1000) },
+    });
+
+    for (const u of expiredUsers) {
+      await autoClockOutIfExceeded(u);
+    }
+
     const logs = await AttendanceLog.find({ user: { $in: targetUsers } })
       .populate('user', 'name email avatar')
       .sort({ clockIn: -1 })
       .limit(100)
       .lean();
-      
+
     res.json({ success: true, logs });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to fetch attendance logs' });

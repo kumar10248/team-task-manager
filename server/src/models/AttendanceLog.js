@@ -19,6 +19,10 @@ const attendanceLogSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    autoClockedOut: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,
