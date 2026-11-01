@@ -34,6 +34,7 @@ exports.getMyTasks = async (req, res) => {
       .populate('project', 'name color')
       .populate('createdBy', 'name email avatar')
       .populate('assignedTo', 'name email avatar')
+      .populate('comments.user', 'name email avatar')
       .sort({ dueDate: 1, createdAt: -1 })
       .lean();
 
@@ -146,7 +147,8 @@ exports.getTasks = async (req, res) => {
     const [tasks, total] = await Promise.all([
       Task.find(filter)
         .populate('assignedTo', 'name email avatar')
-        .populate('createdBy', 'name email')
+        .populate('createdBy', 'name email avatar')
+        .populate('comments.user', 'name email avatar')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit))

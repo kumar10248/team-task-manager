@@ -216,6 +216,7 @@ interface CommentsPanelProps {
   projectId: string;
   currentUserId: string;
   myRole: 'admin' | 'member';
+  members?: ProjectMember[];
   onClose: () => void;
   onCommentsUpdate?: (taskId: string, comments: Comment[]) => void;
 }
@@ -228,7 +229,7 @@ const QUICK_REACTIONS = [
   { label: '🎉 Great job', text: '🎉 Awesome job on this!' },
 ];
 
-function CommentsPanel({ task, projectId, currentUserId, myRole, onClose, onCommentsUpdate }: CommentsPanelProps) {
+function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], onClose, onCommentsUpdate }: CommentsPanelProps) {
   const { user } = useAuth();
   const toast = useToast();
   const [comments, setComments] = useState<Comment[]>(task.comments || []);
@@ -239,6 +240,23 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, onClose, onComm
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const commentsEndRef = useRef<HTMLDivElement>(null);
 
+  // Fetch freshly populated task comments on open
+  useEffect(() => {
+    let active = true;
+    tasksApi
+      .get(projectId, task._id)
+      .then((res) => {
+        if (!active || !res?.task?.comments) return;
+        setComments(res.task.comments);
+        if (onCommentsUpdate) onCommentsUpdate(task._id, res.task.comments);
+      })
+      .catch(console.error);
+
+    return () => {
+      active = false;
+    };
+  }, [projectId, task._id, onCommentsUpdate]);
+
   const scrollToBottom = () => {
     commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -246,6 +264,66 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, onClose, onComm
   useEffect(() => {
     scrollToBottom();
   }, [comments.length]);
+
+  const getAuthorInfo = (c: Comment) => {
+    if (c.user && typeof c.user === 'object' && c.user.name) {
+      const isMe = c.user._id === currentUserId || (user?._id && c.user._id === user._id);
+      return {
+        id: c.user._id,
+        name: c.user.name,
+        isMe: !!isMe,
+        initial: (c.user.name[0] || 'U').toUpperCase(),
+      };
+    }
+
+    const rawId = typeof c.user === 'string' ? c.user : c.user?._id;
+
+    if (rawId && (rawId === currentUserId || (user?._id && rawId === user._id))) {
+      return {
+        id: currentUserId,
+        name: user?.name || 'You',
+        isMe: true,
+        initial: (user?.name?.[0] || 'Y').toUpperCase(),
+      };
+    }
+
+    if (rawId && members.length > 0) {
+      const found = members.find((m) => m.user?._id === rawId);
+      if (found?.user?.name) {
+        return {
+          id: found.user._id,
+          name: found.user.name,
+          isMe: false,
+          initial: (found.user.name[0] || 'U').toUpperCase(),
+        };
+      }
+    }
+
+    if (rawId && task.assignedTo?._id === rawId && task.assignedTo.name) {
+      return {
+        id: task.assignedTo._id,
+        name: task.assignedTo.name,
+        isMe: false,
+        initial: (task.assignedTo.name[0] || 'U').toUpperCase(),
+      };
+    }
+
+    if (rawId && task.createdBy?._id === rawId && task.createdBy.name) {
+      return {
+        id: task.createdBy._id,
+        name: task.createdBy.name,
+        isMe: false,
+        initial: (task.createdBy.name[0] || 'U').toUpperCase(),
+      };
+    }
+
+    return {
+      id: rawId || '',
+      name: 'Team Member',
+      isMe: false,
+      initial: 'U',
+    };
+  };
 
   const send = async (e?: FormEvent) => {
     if (e) e.preventDefault();
@@ -364,9 +442,10 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, onClose, onComm
           </div>
         ) : (
           comments.map((c) => {
-            const isMe = c.user?._id === currentUserId;
+            const author = getAuthorInfo(c);
+            const isMe = author.isMe;
             const canManage = isMe || myRole === 'admin';
-            const userInitial = c.user?.name?.[0]?.toUpperCase() || 'U';
+            const userInitial = author.initial;
 
             return (
               <div
@@ -409,7 +488,7 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, onClose, onComm
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'Outfit, sans-serif' }}>
-                        {c.user?.name || 'Team Member'} {isMe && <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--accent-primary)' }}>(you)</span>}
+                        {author.name} {isMe && <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--accent-primary)' }}>(you)</span>}
                       </span>
                       <span style={{ fontSize: 11, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)' }}>
                         {formatTimeAgo(c.createdAt)}
@@ -1115,6 +1194,7 @@ export default function ProjectDetailPage() {
           projectId={id}
           currentUserId={user?._id || ''}
           myRole={myRole}
+          members={members}
           onClose={() => setCommentTask(null)}
           onCommentsUpdate={(taskId, newComments) => {
             setTasks((prev) =>
