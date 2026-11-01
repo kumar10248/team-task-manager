@@ -9,7 +9,8 @@ exports.getNotifications = async (req, res) => {
     const notifications = await Notification.find({ recipient: req.user._id })
       .populate('sender', 'name avatar')
       .sort({ createdAt: -1 })
-      .limit(50); // limit to recent 50
+      .limit(50)
+      .lean(); // limit to recent 50
     
     res.json({ success: true, notifications });
   } catch (err) {

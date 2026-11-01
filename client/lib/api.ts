@@ -1,6 +1,6 @@
 // lib/api.ts — All API interactions centralized here.
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 // ─── Domain types ─────────────────────────────────────────────────────────────
 
@@ -173,6 +173,10 @@ export const tasksApi = {
   list: (pid: string, params: TaskFilterParams = {}) => {
     const qs = new URLSearchParams(params as Record<string, string>).toString();
     return get<TaskListResponse>(`/projects/${pid}/tasks${qs ? `?${qs}` : ''}`);
+  },
+  myTasks: (params: { status?: TaskStatus; priority?: TaskPriority } = {}) => {
+    const qs = new URLSearchParams(params as Record<string, string>).toString();
+    return get<{ success: boolean; tasks: Task[] }>(`/projects/my-tasks${qs ? `?${qs}` : ''}`);
   },
   create:        (pid: string, d: CreateTaskPayload)                => post<TaskResponse>(`/projects/${pid}/tasks`, d),
   get:           (pid: string, tid: string)                         => get<TaskResponse>(`/projects/${pid}/tasks/${tid}`),

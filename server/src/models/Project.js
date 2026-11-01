@@ -59,5 +59,6 @@ projectSchema.virtual('tasks', {
 // Index for faster lookup by creator
 projectSchema.index({ createdBy: 1 });
 projectSchema.index({ status: 1 });
+projectSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('Project', projectSchema);

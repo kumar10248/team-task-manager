@@ -15,24 +15,31 @@ export default function NotificationsPanel({ isOpen, onClose }: NotificationsPan
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
-      // Fetch notifications
-      setLoading(true);
+      let active = true;
+      queueMicrotask(() => {
+        if (active) setLoading(true);
+      });
       notificationsApi.list()
         .then(res => {
-          if (res.success) setNotifications(res.notifications);
+          if (active && res.success) setNotifications(res.notifications);
         })
-        .finally(() => setLoading(false));
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+      return () => {
+        active = false;
+        document.body.style.overflow = 'auto';
+      };
     } else {
       document.body.style.overflow = 'auto';
     }
-    return () => { document.body.style.overflow = 'auto'; };
   }, [isOpen]);
 
   const handleMarkAllRead = async () => {
     try {
       await notificationsApi.markAsRead();
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
-    } catch (e) {}
+    } catch {}
   };
 
   const handleNotificationClick = async (n: Notification) => {
@@ -40,7 +47,7 @@ export default function NotificationsPanel({ isOpen, onClose }: NotificationsPan
       try {
         await notificationsApi.markAsRead([n._id]);
         setNotifications(prev => prev.map(notif => notif._id === n._id ? { ...notif, isRead: true } : notif));
-      } catch (e) {}
+      } catch {}
     }
     // Ideally, navigate to the task here if n.task is present
   };
@@ -109,7 +116,7 @@ export default function NotificationsPanel({ isOpen, onClose }: NotificationsPan
             {loading ? (
               <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: 14 }}>Loading...</div>
             ) : notifications.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: 14 }}>You're all caught up!</div>
+              <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: 14 }}>You&apos;re all caught up!</div>
             ) : notifications.map((n) => {
               const userIcon = n.sender?.avatar || n.sender?.name?.[0]?.toUpperCase() || 'S';
               const userName = n.sender?.name || 'System';

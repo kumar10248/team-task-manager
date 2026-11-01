@@ -40,7 +40,7 @@ const projectMemberSchema = new mongoose.Schema(
 
 // A user can only be a member of a project once
 projectMemberSchema.index({ project: 1, user: 1 }, { unique: true });
-projectMemberSchema.index({ user: 1 });
-projectMemberSchema.index({ project: 1 });
+projectMemberSchema.index({ user: 1, role: 1 });
+projectMemberSchema.index({ project: 1, role: 1 });
 
 module.exports = mongoose.model('ProjectMember', projectMemberSchema);

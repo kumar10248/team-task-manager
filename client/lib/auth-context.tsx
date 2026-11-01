@@ -15,11 +15,14 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser]       = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    return !!tokenHelpers.get();
+  });
 
   useEffect(() => {
     const token = tokenHelpers.get();
-    if (!token) { setLoading(false); return; }
+    if (!token) return;
     authApi.getMe()
       .then((d) => setUser(d.user))
       .catch(() => tokenHelpers.clear())

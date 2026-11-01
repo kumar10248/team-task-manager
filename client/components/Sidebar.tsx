@@ -3,6 +3,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '../lib/auth-context';
+import { authApi } from '../lib/api';
 import { LayoutDashboard, FolderKanban, CheckSquare, Settings, LogOut, Zap, Bell, LucideIcon } from 'lucide-react';
 import NotificationsPanel from './NotificationsPanel';
 
@@ -88,13 +89,12 @@ export default function Sidebar() {
               className={user?.isClockedIn ? "btn-secondary" : "btn-primary"} 
               style={{ flex: 1, padding: '8px', fontSize: 13, justifyContent: 'center', transition: 'all 0.3s' }}
               onClick={async () => {
-                const api = require('../lib/api').authApi;
                 try {
-                  const res = user?.isClockedIn ? await api.clockOut() : await api.clockIn();
+                  const res = user?.isClockedIn ? await authApi.clockOut() : await authApi.clockIn();
                   if (res.success && setUser) {
                     setUser(res.user);
                   }
-                } catch(e) {}
+                } catch {}
               }}
             >
               {user?.isClockedIn ? 'Clock Out' : 'Clock In'}

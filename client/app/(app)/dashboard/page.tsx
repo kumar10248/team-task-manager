@@ -26,11 +26,6 @@ interface ProjectSummary {
   taskStats: TaskStats;
 }
 
-interface TaskUser {
-  _id: string;
-  name: string;
-}
-
 interface RecentTask {
   _id: string;
   title: string;
@@ -92,13 +87,6 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
   done:        'Done',
 };
 
-const PRIORITY_COLOR: Record<TaskPriority, string> = {
-  low:    '#4ade80',
-  medium: '#fbbf24',
-  high:   '#fb923c',
-  urgent: '#f87171',
-};
-
 /* ================= STAT CARD ================= */
 
 function StatCard({ icon: Icon, label, value, sub, color = 'var(--accent-primary)' }: StatCardProps): ReactElement {
@@ -141,17 +129,28 @@ export default function DashboardPage(): ReactElement {
   }, [user, authLoading, router]);
 
   useEffect(() => {
+    let active = true;
     if (!user) return;
     dashboardApi
       .get()
-      .then((d) => setData(d.dashboard))
+      .then((d) => {
+        if (active) setData(d.dashboard);
+      })
       .catch(console.error)
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (active) setLoading(false);
+      });
 
     dashboardApi
       .getAttendanceLogs()
-      .then((res) => setAttendanceLogs(res.logs))
+      .then((res) => {
+        if (active) setAttendanceLogs(res.logs);
+      })
       .catch(console.error);
+
+    return () => {
+      active = false;
+    };
   }, [user]);
 
   if (authLoading || loading) {

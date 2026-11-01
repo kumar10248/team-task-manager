@@ -198,7 +198,7 @@ export default function HomePage() {
           <h2 style={{ fontFamily:'Fraunces, serif', fontSize:'clamp(32px, 4vw, 56px)', fontWeight:400, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>Crafted for perfection.</h2>
         </div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(320px, 1fr))', gap:24 }}>
-          {features.map(({ icon: Icon, title, desc }, i) => (
+          {features.map(({ icon: Icon, title, desc }) => (
             <div key={title} className="glass-panel" style={{ padding:36, transition:'all 0.3s ease', cursor:'default' }} onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)' }} onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = 'var(--bg-border)' }}>
               <div style={{ width:48, height:48, borderRadius:12, background:'rgba(255,255,255,0.05)', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:20, border:'1px solid rgba(255,255,255,0.05)' }}>
                 <Icon size={22} color="var(--accent-primary)" />

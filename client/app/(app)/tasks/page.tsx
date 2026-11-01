@@ -2,7 +2,7 @@
 import { useEffect, useState, ReactElement } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { projectsApi, tasksApi } from '@/lib/api';
+import { tasksApi } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import { CheckSquare, Filter } from 'lucide-react';
@@ -11,7 +11,6 @@ import { CheckSquare, Filter } from 'lucide-react';
 
 type TaskStatus   = 'todo' | 'in_progress' | 'done';
 type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
-type Role         = 'admin' | 'member' | string;
 
 interface TaskUser {
   _id: string;
@@ -31,12 +30,6 @@ interface Task {
   projectName: string;
   projectId: string;
   myRole: string;
-}
-
-interface Project {
-  _id: string;
-  name: string;
-  myRole: Role;
 }
 
 interface TaskFilter {
@@ -73,36 +66,27 @@ export default function MyTasksPage(): ReactElement {
   }, [user, authLoading, router]);
 
   useEffect(() => {
+    let active = true;
     if (!user) return;
 
-    const load = async (): Promise<void> => {
-      try {
-        const projectsRes = await projectsApi.list();
-        const taskArrays: Task[][] = await Promise.all(
-          projectsRes.projects.map((p) =>
-            tasksApi
-              .list(p._id, { assignedTo: user._id })
-              .then((r) =>
-                r.tasks.map((t) => ({
-                  ...t,
-                  projectName: p.name,
-                  projectId:   p._id,
-                  myRole:      p.myRole || 'member',
-                }))
-              )
-              .catch((): Task[] => [])
-          )
-        );
-        setAllTasks(taskArrays.flat());
-      } catch {
-        toast('Failed to load tasks', 'error');
-      } finally {
-        setLoading(false);
-      }
-    };
+    tasksApi
+      .myTasks()
+      .then((res) => {
+        if (active && res.success) {
+          setAllTasks(res.tasks as unknown as Task[]);
+        }
+      })
+      .catch(() => {
+        if (active) toast('Failed to load tasks', 'error');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
 
-    load();
-  }, [user]);
+    return () => {
+      active = false;
+    };
+  }, [user, toast]);
 
   const updateStatus = async (task: Task, status: TaskStatus): Promise<void> => {
     try {

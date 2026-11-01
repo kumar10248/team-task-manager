@@ -4,9 +4,55 @@ const ProjectMember = require('../models/ProjectMember');
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 const getMembership = (projectId, userId) =>
-  ProjectMember.findOne({ project: projectId, user: userId });
+  ProjectMember.findOne({ project: projectId, user: userId }).lean();
 
 // ─── Controllers ────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/projects/my-tasks
+ * Fast single-query endpoint to fetch all tasks assigned to the authenticated user.
+ */
+exports.getMyTasks = async (req, res) => {
+  try {
+    const memberships = await ProjectMember.find({ user: req.user._id }).select('project role').lean();
+    const projectIds = memberships.map((m) => m.project);
+
+    const roleMap = {};
+    memberships.forEach((m) => {
+      roleMap[m.project.toString()] = m.role;
+    });
+
+    const filter = {
+      assignedTo: req.user._id,
+      project: { $in: projectIds },
+    };
+
+    if (req.query.status) filter.status = req.query.status;
+    if (req.query.priority) filter.priority = req.query.priority;
+
+    const tasks = await Task.find(filter)
+      .populate('project', 'name color')
+      .populate('createdBy', 'name email avatar')
+      .populate('assignedTo', 'name email avatar')
+      .sort({ dueDate: 1, createdAt: -1 })
+      .lean();
+
+    const formattedTasks = tasks.map((t) => {
+      const pid = typeof t.project === 'object' && t.project ? t.project._id.toString() : t.project?.toString();
+      return {
+        ...t,
+        projectName: typeof t.project === 'object' && t.project ? t.project.name : 'Unknown',
+        projectId: pid,
+        myRole: roleMap[pid] || 'member',
+      };
+    });
+
+    res.json({ success: true, tasks: formattedTasks });
+  } catch (err) {
+    console.error('Failed to fetch user tasks:', err);
+    res.status(500).json({ success: false, message: 'Failed to fetch tasks' });
+  }
+};
 
 /**
  * POST /api/projects/:projectId/tasks
@@ -108,7 +154,8 @@ exports.getTasks = async (req, res) => {
         .populate('createdBy', 'name email')
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(Number(limit)),
+        .limit(Number(limit))
+        .lean(),
       Task.countDocuments(filter),
     ]);
 
@@ -142,7 +189,8 @@ exports.getTask = async (req, res) => {
     const task = await Task.findOne({ _id: taskId, project: projectId })
       .populate('assignedTo', 'name email avatar')
       .populate('createdBy', 'name email')
-      .populate('comments.user', 'name email avatar');
+      .populate('comments.user', 'name email avatar')
+      .lean();
 
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
 

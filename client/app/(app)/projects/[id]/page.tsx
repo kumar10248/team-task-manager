@@ -10,7 +10,7 @@ import Sidebar from '@/components/Sidebar';
 import Modal from '@/components/Model';
 import {
   Plus, ArrowLeft, Trash2, UserPlus, Pencil,
-  MessageSquare, Send, X, Check
+  MessageSquare, Send, X
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -398,7 +398,7 @@ export default function ProjectDetailPage() {
     try {
       const [pRes, tRes] = await Promise.all([
         projectsApi.get(id),
-        tasksApi.list(id),
+        tasksApi.list(id, { limit: 1000 }),
       ]);
       setProject(pRes.project);
       setMembers(pRes.members);
@@ -412,7 +412,34 @@ export default function ProjectDetailPage() {
     }
   };
 
-  useEffect(() => { if (user) load(); }, [user, id]);
+  useEffect(() => {
+    let active = true;
+    if (!user) return;
+
+    Promise.all([
+      projectsApi.get(id),
+      tasksApi.list(id, { limit: 1000 }),
+    ])
+      .then(([pRes, tRes]) => {
+        if (!active) return;
+        setProject(pRes.project);
+        setMembers(pRes.members);
+        setMyRole(pRes.project.myRole ?? 'member');
+        setTasks(tRes.tasks);
+      })
+      .catch(() => {
+        if (!active) return;
+        toast('Failed to load project', 'error');
+        router.push('/projects');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user, id, router, toast]);
 
   // ── Task helpers ────────────────────────────────────────────────────────────
 
@@ -451,16 +478,17 @@ export default function ProjectDetailPage() {
     };
     try {
       if (editingTask) {
-        await tasksApi.update(id, editingTask._id, payload);
+        const res = await tasksApi.update(id, editingTask._id, payload);
         toast('Task updated');
+        setTasks((prev) => prev.map((t) => (t._id === editingTask._id ? res.task : t)));
       } else {
-        await tasksApi.create(id, payload);
+        const res = await tasksApi.create(id, payload);
         toast('Task created');
+        setTasks((prev) => [res.task, ...prev]);
       }
       setShowTaskModal(false);
       setEditingTask(null);
       setTaskForm(EMPTY_TASK_FORM);
-      await load();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to save task', 'error');
     } finally {
@@ -481,11 +509,12 @@ export default function ProjectDetailPage() {
 
   const confirmDeleteTask = async () => {
     if (!deleteTaskTarget) return;
+    const targetId = deleteTaskTarget._id;
     try {
-      await tasksApi.delete(id, deleteTaskTarget._id);
+      await tasksApi.delete(id, targetId);
       toast('Task deleted');
+      setTasks((prev) => prev.filter((t) => t._id !== targetId));
       setDeleteTaskTarget(null);
-      await load();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to delete', 'error');
     }

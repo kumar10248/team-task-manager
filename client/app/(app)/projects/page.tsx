@@ -3,7 +3,7 @@ import { useEffect, useState, ReactElement, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
-import { projectsApi, tasksApi } from '@/lib/api';
+import { projectsApi } from '@/lib/api';
 import type { CreateProjectPayload } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
@@ -106,33 +106,45 @@ export default function ProjectsPage(): ReactElement {
   const load = async () => {
     try {
       const { projects: raw } = await projectsApi.list();
-
-      // Fetch task counts for every project in parallel
-      const withStats = await Promise.all(
-        raw.map(async (p) => {
-          try {
-            const { tasks } = await tasksApi.list(p._id);
-            const total = tasks.length;
-            const done  = tasks.filter((t) => t.status === 'done').length;
-            return {
-              ...p,
-              myRole: (p.myRole ?? 'member') as 'admin' | 'member',
-              taskStats: { total, done },
-            };
-          } catch {
-            return { ...p, myRole: (p.myRole ?? 'member') as 'admin' | 'member', taskStats: { total: 0, done: 0 } };
-          }
-        })
+      setProjects(
+        raw.map((p) => ({
+          ...p,
+          myRole: (p.myRole ?? 'member') as 'admin' | 'member',
+          taskStats: p.taskStats ?? { total: 0, done: 0 },
+        }))
       );
-
-      setProjects(withStats);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
   };
-  useEffect(() => { if (user) load(); }, [user]);
+
+  useEffect(() => {
+    let active = true;
+    if (!user) return;
+
+    projectsApi
+      .list()
+      .then(({ projects: raw }) => {
+        if (!active) return;
+        setProjects(
+          raw.map((p) => ({
+            ...p,
+            myRole: (p.myRole ?? 'member') as 'admin' | 'member',
+            taskStats: p.taskStats ?? { total: 0, done: 0 },
+          }))
+        );
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user]);
 
   const create = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();

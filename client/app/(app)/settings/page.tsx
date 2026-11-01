@@ -41,7 +41,11 @@ export default function SettingsPage(): ReactElement {
   }, [user, authLoading, router]);
 
   useEffect(() => {
-    if (user) setProfile({ name: user.name, email: user.email });
+    if (user) {
+      queueMicrotask(() => {
+        setProfile({ name: user.name, email: user.email });
+      });
+    }
   }, [user]);
 
   const saveProfile = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
@@ -232,7 +236,7 @@ export default function SettingsPage(): ReactElement {
                       </div>
                     </div>
                     <label className="toggle-switch">
-                      <input type="checkbox" checked={prefs.darkMode} onChange={(e) => {
+                      <input type="checkbox" checked={prefs.darkMode} onChange={() => {
                         toast('Dark mode is permanently locked in for this aesthetic!', 'success');
                         setPrefs({...prefs, darkMode: true});
                       }} />

@@ -1,6 +1,8 @@
+const mongoose = require('mongoose');
 const Task = require('../models/Task');
 const Project = require('../models/Project');
 const ProjectMember = require('../models/ProjectMember');
+const AttendanceLog = require('../models/AttendanceLog');
 
 /**
  * GET /api/dashboard
@@ -12,8 +14,8 @@ const ProjectMember = require('../models/ProjectMember');
  * Response shape:
  * {
  *   totalTasks, tasksByStatus, tasksByPriority,
- *   tasksPerUser, overdueTask, recentTasks,
- *   projectSummaries
+ *   tasksPerUser, overdueCount, overdueTasks, recentTasks,
+ *   projectSummaries, teamAttendance
  * }
  */
 exports.getDashboard = async (req, res) => {
@@ -21,100 +23,119 @@ exports.getDashboard = async (req, res) => {
     const now = new Date();
 
     // All memberships for this user
-    const memberships = await ProjectMember.find({ user: req.user._id });
+    const memberships = await ProjectMember.find({ user: req.user._id }).lean();
     const projectIds = memberships.map((m) => m.project);
     const adminProjectIds = memberships
       .filter((m) => m.role === 'admin')
       .map((m) => m.project);
 
-    // ── 1. Total tasks & tasks by status ───────────────────────────────────
-    // For members: only their assigned tasks across all projects
-    // For admins: all tasks in projects they admin (plus their assigned tasks elsewhere)
+    // Filter for user-visible tasks
     const taskFilter = {
       $or: [
-        { project: { $in: adminProjectIds } },         // all tasks in admin projects
-        { assignedTo: req.user._id, project: { $in: projectIds } }, // assigned in member projects
+        { project: { $in: adminProjectIds } },
+        { assignedTo: req.user._id, project: { $in: projectIds } },
       ],
     };
 
-    const [totalTasks, tasksByStatus, tasksByPriority] = await Promise.all([
-      Task.countDocuments(taskFilter),
-      Task.aggregate([
-        { $match: taskFilter },
-        { $group: { _id: '$status', count: { $sum: 1 } } },
-        { $sort: { _id: 1 } },
-      ]),
-      Task.aggregate([
-        { $match: taskFilter },
-        { $group: { _id: '$priority', count: { $sum: 1 } } },
-        { $sort: { _id: 1 } },
-      ]),
-    ]);
-
-    // ── 2. Tasks per user (admin projects only) ─────────────────────────────
-    const tasksPerUser = adminProjectIds.length
-      ? await Task.aggregate([
-          { $match: { project: { $in: adminProjectIds }, assignedTo: { $ne: null } } },
-          { $group: { _id: '$assignedTo', count: { $sum: 1 } } },
-          {
-            $lookup: {
-              from: 'users',
-              localField: '_id',
-              foreignField: '_id',
-              as: 'user',
-            },
-          },
-          { $unwind: '$user' },
-          {
-            $project: {
-              _id: 0,
-              userId: '$_id',
-              name: '$user.name',
-              email: '$user.email',
-              count: 1,
-            },
-          },
-          { $sort: { count: -1 } },
-        ])
-      : [];
-
-    // ── 3. Overdue tasks ────────────────────────────────────────────────────
     const overdueFilter = {
       ...taskFilter,
       dueDate: { $lt: now },
-      status: { $ne: 'done' },
+      status: { $in: ['todo', 'in_progress'] },
     };
 
-    const [overdueCount, overdueTasks] = await Promise.all([
-      Task.countDocuments(overdueFilter),
+    // Parallelize all independent aggregations and queries
+    const [
+      tasksByStatus,
+      tasksByPriority,
+      tasksPerUser,
+      overdueTasks,
+      overdueCount,
+      recentTasks,
+      projects,
+      projectTaskStats,
+      teamMemberships,
+    ] = await Promise.all([
+      // 1. Status breakdown
+      Task.aggregate([
+        { $match: taskFilter },
+        { $group: { _id: '$status', count: { $sum: 1 } } },
+      ]),
+
+      // 2. Priority breakdown
+      Task.aggregate([
+        { $match: taskFilter },
+        { $group: { _id: '$priority', count: { $sum: 1 } } },
+      ]),
+
+      // 3. Tasks per user (admin projects only)
+      adminProjectIds.length
+        ? Task.aggregate([
+            { $match: { project: { $in: adminProjectIds }, assignedTo: { $ne: null } } },
+            { $group: { _id: '$assignedTo', count: { $sum: 1 } } },
+            {
+              $lookup: {
+                from: 'users',
+                localField: '_id',
+                foreignField: '_id',
+                as: 'user',
+              },
+            },
+            { $unwind: '$user' },
+            {
+              $project: {
+                _id: 0,
+                userId: '$_id',
+                name: '$user.name',
+                email: '$user.email',
+                count: 1,
+              },
+            },
+            { $sort: { count: -1 } },
+          ])
+        : Promise.resolve([]),
+
+      // 4. Overdue tasks list
       Task.find(overdueFilter)
         .populate('assignedTo', 'name email')
         .populate('project', 'name')
         .sort({ dueDate: 1 })
-        .limit(10),
-    ]);
+        .limit(10)
+        .lean(),
 
-    // ── 4. Recent tasks ─────────────────────────────────────────────────────
-    const recentTasks = await Task.find(taskFilter)
-      .populate('assignedTo', 'name email avatar')
-      .populate('project', 'name color')
-      .sort({ updatedAt: -1 })
-      .limit(10);
+      // 5. Overdue tasks count
+      Task.countDocuments(overdueFilter),
 
-    // ── 5. Project summaries ────────────────────────────────────────────────
-    const projects = await Project.find({ _id: { $in: projectIds } }).lean();
+      // 6. Recent tasks
+      Task.find(taskFilter)
+        .populate('assignedTo', 'name email avatar')
+        .populate('project', 'name color')
+        .sort({ updatedAt: -1 })
+        .limit(10)
+        .lean(),
 
-    const projectTaskStats = await Task.aggregate([
-      { $match: { project: { $in: projectIds } } },
-      {
-        $group: {
-          _id: { project: '$project', status: '$status' },
-          count: { $sum: 1 },
+      // 7. Projects list
+      Project.find({ _id: { $in: projectIds } }).lean(),
+
+      // 8. Project task statistics
+      Task.aggregate([
+        { $match: { project: { $in: projectIds } } },
+        {
+          $group: {
+            _id: { project: '$project', status: '$status' },
+            count: { $sum: 1 },
+          },
         },
-      },
+      ]),
+
+      // 9. Team Attendance (for admin projects)
+      adminProjectIds.length > 0
+        ? ProjectMember.find({ project: { $in: adminProjectIds } })
+            .populate('user', 'name email avatar isClockedIn lastClockIn lastClockOut')
+            .lean()
+        : Promise.resolve([]),
     ]);
 
-    // Build a map: projectId → { todo, in_progress, done, total }
+    // Build project stats map
     const statsMap = {};
     projectTaskStats.forEach(({ _id, count }) => {
       const pid = _id.project.toString();
@@ -132,32 +153,29 @@ exports.getDashboard = async (req, res) => {
       taskStats: statsMap[p._id.toString()] || { todo: 0, in_progress: 0, done: 0, total: 0 },
     }));
 
-    // ── 5.5 Team Attendance (Admins only) ───────────────────────────────────
-    let teamAttendance = [];
-    if (adminProjectIds.length > 0) {
-      // Find all project members for projects this user admins
-      const teamMemberships = await ProjectMember.find({ project: { $in: adminProjectIds } }).populate('user', 'name email avatar isClockedIn lastClockIn lastClockOut');
-      const uniqueUsers = new Map();
-      teamMemberships.forEach(m => {
-        if (m.user && !uniqueUsers.has(m.user._id.toString())) {
-          uniqueUsers.set(m.user._id.toString(), {
-            _id: m.user._id,
-            name: m.user.name,
-            email: m.user.email,
-            avatar: m.user.avatar,
-            isClockedIn: m.user.isClockedIn,
-            lastClockIn: m.user.lastClockIn,
-            lastClockOut: m.user.lastClockOut,
-          });
-        }
-      });
-      teamAttendance = Array.from(uniqueUsers.values());
-    }
+    // Deduplicate team attendance users
+    const uniqueUsers = new Map();
+    teamMemberships.forEach((m) => {
+      if (m.user && !uniqueUsers.has(m.user._id.toString())) {
+        uniqueUsers.set(m.user._id.toString(), {
+          _id: m.user._id,
+          name: m.user.name,
+          email: m.user.email,
+          avatar: m.user.avatar,
+          isClockedIn: m.user.isClockedIn,
+          lastClockIn: m.user.lastClockIn,
+          lastClockOut: m.user.lastClockOut,
+        });
+      }
+    });
+    const teamAttendance = Array.from(uniqueUsers.values());
 
-    // ── 6. Normalise tasksByStatus into a plain object ─────────────────────
+    // Normalize tasksByStatus and compute totalTasks without an extra countDocuments query
     const statusSummary = { todo: 0, in_progress: 0, done: 0 };
+    let totalTasks = 0;
     tasksByStatus.forEach(({ _id, count }) => {
       statusSummary[_id] = count;
+      totalTasks += count;
     });
 
     res.json({
@@ -288,21 +306,21 @@ exports.getProjectDashboard = async (req, res) => {
  */
 exports.getAttendanceLogs = async (req, res) => {
   try {
-    const AttendanceLog = require('../models/AttendanceLog');
-    const memberships = await ProjectMember.find({ user: req.user._id, role: 'admin' });
+    const memberships = await ProjectMember.find({ user: req.user._id, role: 'admin' }).lean();
     const adminProjectIds = memberships.map((m) => m.project);
     
     let targetUsers = [req.user._id]; // at least the user themselves
     
     if (adminProjectIds.length > 0) {
-      const teamMemberships = await ProjectMember.find({ project: { $in: adminProjectIds } });
+      const teamMemberships = await ProjectMember.find({ project: { $in: adminProjectIds } }).lean();
       targetUsers = [...new Set(teamMemberships.map((m) => m.user.toString()))];
     }
     
     const logs = await AttendanceLog.find({ user: { $in: targetUsers } })
       .populate('user', 'name email avatar')
       .sort({ clockIn: -1 })
-      .limit(100);
+      .limit(100)
+      .lean();
       
     res.json({ success: true, logs });
   } catch (err) {

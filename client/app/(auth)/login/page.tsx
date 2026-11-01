@@ -90,7 +90,7 @@ export default function LoginPage() {
           </form>
 
           <div style={{ textAlign:'center', marginTop:24, fontSize:14, color:'var(--text-secondary)', fontFamily:'Outfit, sans-serif' }}>
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <Link href="/signup" style={{ color:'var(--accent-primary)', textDecoration:'none', fontWeight:500 }}>Create one</Link>
           </div>
         </div>

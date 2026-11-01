@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Project = require('../models/Project');
 const ProjectMember = require('../models/ProjectMember');
 const Task = require('../models/Task');
@@ -10,7 +11,7 @@ const User = require('../models/User');
  * Returns null if not a member.
  */
 const getMembership = (projectId, userId) =>
-  ProjectMember.findOne({ project: projectId, user: userId });
+  ProjectMember.findOne({ project: projectId, user: userId }).lean();
 
 // ─── Controllers ────────────────────────────────────────────────────────────
 
@@ -38,7 +39,7 @@ exports.createProject = async (req, res) => {
       invitedBy: req.user._id,
     });
 
-    const populated = await Project.findById(project._id).populate('createdBy', 'name email');
+    const populated = await Project.findById(project._id).populate('createdBy', 'name email').lean();
     res.status(201).json({ success: true, project: populated });
   } catch (err) {
     if (err.name === 'ValidationError') {
@@ -51,26 +52,50 @@ exports.createProject = async (req, res) => {
 
 /**
  * GET /api/projects
- * List all projects the authenticated user belongs to.
+ * List all projects the authenticated user belongs to with aggregated taskStats.
  */
 exports.getProjects = async (req, res) => {
   try {
-    const memberships = await ProjectMember.find({ user: req.user._id }).select('project role');
+    const memberships = await ProjectMember.find({ user: req.user._id }).select('project role').lean();
     const projectIds = memberships.map((m) => m.project);
 
-    const projects = await Project.find({ _id: { $in: projectIds } })
-      .populate('createdBy', 'name email')
-      .sort({ createdAt: -1 });
+    const [projects, taskStatsAggregation] = await Promise.all([
+      Project.find({ _id: { $in: projectIds } })
+        .populate('createdBy', 'name email')
+        .sort({ createdAt: -1 })
+        .lean(),
+      Task.aggregate([
+        { $match: { project: { $in: projectIds } } },
+        {
+          $group: {
+            _id: { project: '$project', status: '$status' },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+    ]);
 
-    // Attach role to each project
+    // Build task stats map per project: { [projectId]: { total, done } }
+    const statsMap = {};
+    taskStatsAggregation.forEach(({ _id, count }) => {
+      const pid = _id.project.toString();
+      if (!statsMap[pid]) statsMap[pid] = { total: 0, done: 0 };
+      statsMap[pid].total += count;
+      if (_id.status === 'done') {
+        statsMap[pid].done += count;
+      }
+    });
+
+    // Attach role and stats to each project
     const roleMap = {};
     memberships.forEach((m) => {
       roleMap[m.project.toString()] = m.role;
     });
 
     const result = projects.map((p) => ({
-      ...p.toObject(),
-      myRole: roleMap[p._id.toString()],
+      ...p,
+      myRole: roleMap[p._id.toString()] || 'member',
+      taskStats: statsMap[p._id.toString()] || { total: 0, done: 0 },
     }));
 
     res.json({ success: true, projects: result });
@@ -90,22 +115,24 @@ exports.getProject = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
-    const project = await Project.findById(req.params.id).populate('createdBy', 'name email');
-    if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
+    const projectObjectId = new mongoose.Types.ObjectId(req.params.id);
 
-    const members = await ProjectMember.find({ project: req.params.id }).populate(
-      'user',
-      'name email avatar isClockedIn lastClockIn lastClockOut'
-    );
-
-    const taskStats = await Task.aggregate([
-      { $match: { project: project._id } },
-      { $group: { _id: '$status', count: { $sum: 1 } } },
+    const [project, members, taskStats] = await Promise.all([
+      Project.findById(req.params.id).populate('createdBy', 'name email').lean(),
+      ProjectMember.find({ project: req.params.id })
+        .populate('user', 'name email avatar isClockedIn lastClockIn lastClockOut')
+        .lean(),
+      Task.aggregate([
+        { $match: { project: projectObjectId } },
+        { $group: { _id: '$status', count: { $sum: 1 } } },
+      ]),
     ]);
+
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
 
     res.json({
       success: true,
-      project: { ...project.toObject(), myRole: membership.role },
+      project: { ...project, myRole: membership.role },
       members,
       taskStats,
     });

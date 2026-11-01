@@ -36,20 +36,17 @@ exports.signup = async (req, res) => {
         message: 'An account with this email already exists',
       });
     }
-    console.log(name,email,password)
 
     const user = await User.create({ name, email, password });
     sendTokenResponse(user, 201, res);
   } catch (err) {
-  console.error("Signup Error:", err); // 👈 ADD THIS
+    if (err.name === 'ValidationError') {
+      const messages = Object.values(err.errors).map((e) => e.message);
+      return res.status(400).json({ success: false, message: messages.join(', ') });
+    }
 
-  if (err.name === 'ValidationError') {
-    const messages = Object.values(err.errors).map((e) => e.message);
-    return res.status(400).json({ success: false, message: messages.join(', ') });
+    res.status(500).json({ success: false, message: err.message });
   }
-
-  res.status(500).json({ success: false, message: err.message }); // 👈 show real message
-}
 };
 
 /**
@@ -89,9 +86,9 @@ exports.login = async (req, res) => {
  */
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id);
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-    res.json({ success: true, user: user.toPublicJSON() });
+    // req.user is already fetched in protect middleware
+    if (!req.user) return res.status(404).json({ success: false, message: 'User not found' });
+    res.json({ success: true, user: typeof req.user.toPublicJSON === 'function' ? req.user.toPublicJSON() : req.user });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Server error' });
   }

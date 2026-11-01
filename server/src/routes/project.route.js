@@ -12,6 +12,9 @@ router.route('/')
   .get(project.getProjects)
   .post(project.createProject);
 
+// Fast single-query user tasks
+router.get('/my-tasks', task.getMyTasks);
+
 router.route('/:id')
   .get(project.getProject)
   .patch(project.updateProject)

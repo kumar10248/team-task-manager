@@ -7,5 +7,6 @@ router.use(protect);
 
 router.get('/', notificationController.getNotifications);
 router.put('/read', notificationController.markAsRead);
+router.patch('/read', notificationController.markAsRead);
 
 module.exports = router;
