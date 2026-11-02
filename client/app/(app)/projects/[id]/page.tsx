@@ -3,8 +3,8 @@ import { useEffect, useState, useRef, FormEvent, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
-import { projectsApi, tasksApi } from '@/lib/api';
-import type { Project, ProjectMember, Task, TaskStatus, TaskPriority, Comment, ChecklistItem } from '@/lib/api';
+import { projectsApi, tasksApi, meetingsApi } from '@/lib/api';
+import type { Project, ProjectMember, Task, TaskStatus, TaskPriority, Comment, ChecklistItem, Meeting } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import Modal from '@/components/Model';
@@ -14,7 +14,8 @@ import { triggerConfetti } from '@/lib/confetti';
 import {
   Plus, ArrowLeft, Trash2, UserPlus, Pencil,
   MessageSquare, CornerDownLeft, GripVertical,
-  Search, X, User, CheckSquare, Download, ExternalLink, Clock
+  Search, X, User, CheckSquare, Download, ExternalLink, Clock,
+  Video, Calendar, Copy, Check
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -919,7 +920,19 @@ export default function ProjectDetailPage() {
   const [tasks, setTasks]       = useState<Task[]>([]);
   const [myRole, setMyRole]     = useState<'admin' | 'member'>('member');
   const [loading, setLoading]   = useState(true);
-  const [tab, setTab]           = useState<'board' | 'list' | 'members'>('board');
+  const [tab, setTab]           = useState<'board' | 'list' | 'meetings' | 'members'>('board');
+
+  // Project Meetings Tab State
+  const [projectMeetings, setProjectMeetings]                 = useState<Meeting[]>([]);
+  const [loadingMeetings, setLoadingMeetings]                 = useState(false);
+  const [showProjectMeetingModal, setShowProjectMeetingModal] = useState(false);
+  const [meetingTitle, setMeetingTitle]                       = useState('');
+  const [meetingStartTime, setMeetingStartTime]               = useState('');
+  const [meetingDuration, setMeetingDuration]                 = useState(30);
+  const [meetingMeetLink, setMeetingMeetLink]                 = useState('');
+  const [meetingAgenda, setMeetingAgenda]                     = useState<string[]>(['Sprint sync & blockers']);
+  const [submittingMeeting, setSubmittingMeeting]             = useState(false);
+  const [copiedMeetingId, setCopiedMeetingId]                 = useState<string | null>(null);
 
   // Modals
   const [showTaskModal, setShowTaskModal]       = useState(false);
@@ -1016,6 +1029,92 @@ export default function ProjectDetailPage() {
       clearInterval(timer);
     };
   }, [user, id, router, toast]);
+
+  // Load project meetings
+  useEffect(() => {
+    if (tab !== 'meetings') return;
+    let active = true;
+    meetingsApi.list({ projectId: id })
+      .then((res) => {
+        if (active) setProjectMeetings(res.meetings || []);
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (active) setLoadingMeetings(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [tab, id]);
+
+  const openScheduleProjectMeeting = () => {
+    const nextStart = new Date(Date.now() + 15 * 60000);
+    nextStart.setMinutes(Math.ceil(nextStart.getMinutes() / 5) * 5, 0, 0);
+    const localIso = new Date(nextStart.getTime() - nextStart.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+
+    setMeetingTitle(`${project?.name || 'Project'} Sync`);
+    setMeetingStartTime(localIso);
+    setMeetingDuration(30);
+    setMeetingMeetLink('');
+    setMeetingAgenda(['Review task progress & blockers', 'Next priorities']);
+    setShowProjectMeetingModal(true);
+  };
+
+  const handleCreateProjectMeeting = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!meetingTitle.trim() || !meetingStartTime) return;
+    try {
+      setSubmittingMeeting(true);
+      const start = new Date(meetingStartTime);
+      const end = new Date(start.getTime() + meetingDuration * 60000);
+      const slug = (project?.name || 'project').toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 16);
+      const link = meetingMeetLink.trim() || `https://meet.jit.si/taskforge-${slug}-${Date.now().toString(36)}`;
+      const participants = members.map((m) => m.user?._id).filter(Boolean);
+
+      const res = await meetingsApi.create({
+        title: meetingTitle.trim(),
+        project: id,
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        meetLink: link,
+        participants,
+        agenda: meetingAgenda.filter((a) => a.trim()).map((title) => ({ title, completed: false })),
+      });
+
+      if (res.success) {
+        toast('Project meeting scheduled! Teammates notified.', 'success');
+        setProjectMeetings((prev) => [res.meeting, ...prev]);
+        setShowProjectMeetingModal(false);
+      }
+    } catch (err) {
+      console.error(err);
+      toast('Failed to schedule meeting', 'error');
+    } finally {
+      setSubmittingMeeting(false);
+    }
+  };
+
+  const handleDeleteProjectMeeting = async (meetingId: string) => {
+    if (!confirm('Are you sure you want to cancel this meeting?')) return;
+    try {
+      await meetingsApi.delete(meetingId);
+      setProjectMeetings((prev) => prev.filter((m) => m._id !== meetingId));
+      toast('Meeting cancelled', 'success');
+    } catch (err) {
+      console.error(err);
+      toast('Failed to delete meeting', 'error');
+    }
+  };
+
+  const copyProjectMeetingLink = (m: Meeting) => {
+    navigator.clipboard.writeText(m.meetLink);
+    setCopiedMeetingId(m._id);
+    toast('Meeting link copied!', 'success');
+    setTimeout(() => setCopiedMeetingId(null), 2000);
+  };
 
   const openCreateTask = useCallback(() => {
     setEditingTask(null);
@@ -1609,7 +1708,7 @@ export default function ProjectDetailPage() {
 
           {/* ── Tabs ── */}
           <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 32 }}>
-            {(['board', 'list', 'members'] as const).map((t) => (
+            {(['board', 'list', 'meetings', 'members'] as const).map((t) => (
               <button key={t} onClick={() => setTab(t)} style={{
                 background: 'none', border: 'none', cursor: 'pointer', padding: '12px 20px',
                 fontFamily: 'Outfit, sans-serif', fontSize: 14, fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase',
@@ -1974,6 +2073,162 @@ export default function ProjectDetailPage() {
               ))}
             </div>
           )}
+
+          {/* ══ Meetings view ══ */}
+          {tab === 'meetings' && (
+            <div style={{ maxWidth: 1000 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+                <div>
+                  <h3 style={{ fontFamily: 'Fraunces, serif', fontSize: 20, color: 'var(--text-primary)', margin: 0 }}>Project Video Syncs</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: 13, fontFamily: 'Outfit, sans-serif', marginTop: 4 }}>
+                    Schedule video calls, share instant rooms, and review agendas for this project.
+                  </p>
+                </div>
+                <button
+                  onClick={openScheduleProjectMeeting}
+                  className="btn-primary"
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', fontSize: 13 }}
+                >
+                  <Plus size={16} /> Schedule Sync
+                </button>
+              </div>
+
+              {loadingMeetings ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
+                  {[1, 2].map((i) => (
+                    <div key={i} className="glass-panel" style={{ height: 180, opacity: 0.5, animation: 'pulse 1.5s infinite' }} />
+                  ))}
+                </div>
+              ) : projectMeetings.length === 0 ? (
+                <div style={{ padding: '60px 20px', textAlign: 'center', background: 'rgba(255,255,255,0.01)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: 16 }}>
+                  <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(129, 140, 248, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                    <Video size={22} color="var(--accent-primary)" />
+                  </div>
+                  <h4 style={{ fontFamily: 'Fraunces, serif', fontSize: 18, color: 'var(--text-primary)', marginBottom: 6 }}>No meetings scheduled yet</h4>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: 13, maxWidth: 360, margin: '0 auto 20px' }}>
+                    Keep everyone aligned on deliverables by setting up a quick standup or review call.
+                  </p>
+                  <button onClick={openScheduleProjectMeeting} className="btn-primary" style={{ padding: '9px 20px', fontSize: 13 }}>
+                    Schedule First Sync
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
+                  {projectMeetings.map((m) => {
+                    const start = new Date(m.startTime);
+                    const end = new Date(m.endTime);
+                    const durMin = Math.round((end.getTime() - start.getTime()) / 60000);
+                    const isHost = m.createdBy?._id === user?._id || myRole === 'admin';
+                    const isOngoing = m.status === 'ongoing';
+
+                    return (
+                      <div
+                        key={m._id}
+                        className="glass-panel"
+                        style={{
+                          padding: 20,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                          position: 'relative',
+                          borderColor: isOngoing ? 'rgba(34, 197, 94, 0.4)' : undefined,
+                        }}
+                      >
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 600,
+                                textTransform: 'uppercase',
+                                color: isOngoing ? '#4ade80' : m.status === 'completed' ? 'var(--text-muted)' : '#818cf8',
+                                background: isOngoing ? '#22c55e15' : 'rgba(255,255,255,0.04)',
+                                padding: '3px 8px',
+                                borderRadius: 6,
+                              }}
+                            >
+                              ● {m.status}
+                            </span>
+                            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{durMin}m duration</span>
+                          </div>
+
+                          <h4 style={{ fontFamily: 'Fraunces, serif', fontSize: 17, color: 'var(--text-primary)', margin: '0 0 8px 0' }}>
+                            {m.title}
+                          </h4>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: 12, marginBottom: 14 }}>
+                            <Calendar size={13} />
+                            <span>{start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', weekday: 'short' })}</span>
+                            <span>•</span>
+                            <Clock size={13} />
+                            <span>{start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+
+                          {m.agenda && m.agenda.length > 0 && (
+                            <div style={{ marginBottom: 16 }}>
+                              <span style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600, display: 'block', marginBottom: 6 }}>
+                                Agenda ({m.agenda.filter(a => a.completed).length}/{m.agenda.length})
+                              </span>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                {m.agenda.slice(0, 3).map((a, i) => (
+                                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: a.completed ? 'var(--text-muted)' : 'var(--text-secondary)' }}>
+                                    <span style={{ color: a.completed ? '#4ade80' : 'var(--text-muted)' }}>•</span>
+                                    <span style={{ textDecoration: a.completed ? 'line-through' : 'none' }}>{a.title}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <button
+                              onClick={() => copyProjectMeetingLink(m)}
+                              style={{ background: 'none', border: 'none', color: copiedMeetingId === m._id ? '#4ade80' : 'var(--text-muted)', cursor: 'pointer', padding: 6 }}
+                              title="Copy link"
+                            >
+                              {copiedMeetingId === m._id ? <Check size={14} /> : <Copy size={14} />}
+                            </button>
+                            {isHost && (
+                              <button
+                                onClick={() => handleDeleteProjectMeeting(m._id)}
+                                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 6 }}
+                                title="Cancel meeting"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </div>
+
+                          <a
+                            href={m.meetLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '6px 14px',
+                              background: isOngoing ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+                              borderRadius: 8,
+                              color: '#fff',
+                              fontSize: 12,
+                              fontWeight: 500,
+                              textDecoration: 'none',
+                              boxShadow: isOngoing ? '0 0 15px rgba(34, 197, 94, 0.4)' : '0 0 10px var(--accent-glow)',
+                            }}
+                          >
+                            <Video size={13} /> Join Call
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </main>
 
@@ -2066,6 +2321,116 @@ export default function ProjectDetailPage() {
             <button className="btn-ghost" onClick={() => setDeleteTaskTarget(null)} style={{ padding: '10px 20px' }}>Cancel</button>
             <button className="btn-primary" style={{ background: '#ef4444', padding: '10px 24px' }} onClick={confirmDeleteTask}>Delete</button>
           </div>
+        </Modal>
+      )}
+
+      {/* ══ Schedule Project Meeting Modal ══ */}
+      {showProjectMeetingModal && (
+        <Modal
+          title={`Schedule Sync — ${project?.name || 'Project'}`}
+          onClose={() => setShowProjectMeetingModal(false)}
+          width={520}
+        >
+          <form onSubmit={handleCreateProjectMeeting}>
+            <div style={{ marginBottom: 18 }}>
+              <FieldLabel>Meeting Title *</FieldLabel>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Sprint Review & Blockers"
+                value={meetingTitle}
+                onChange={(e) => setMeetingTitle(e.target.value)}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 14, marginBottom: 18 }}>
+              <div>
+                <FieldLabel>Start Date & Time *</FieldLabel>
+                <input
+                  type="datetime-local"
+                  required
+                  value={meetingStartTime}
+                  onChange={(e) => setMeetingStartTime(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <FieldLabel>Duration</FieldLabel>
+                <select
+                  value={meetingDuration}
+                  onChange={(e) => setMeetingDuration(Number(e.target.value))}
+                >
+                  <option value={15}>15 mins</option>
+                  <option value={30}>30 mins</option>
+                  <option value={45}>45 mins</option>
+                  <option value={60}>1 hour</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 18 }}>
+              <FieldLabel>Video Call Link</FieldLabel>
+              <input
+                type="url"
+                placeholder="Leave blank for auto-generated Jitsi room or paste Google Meet link"
+                value={meetingMeetLink}
+                onChange={(e) => setMeetingMeetLink(e.target.value)}
+              />
+            </div>
+
+            <div style={{ marginBottom: 24 }}>
+              <FieldLabel>Agenda Topics</FieldLabel>
+              {meetingAgenda.map((item, idx) => (
+                <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  <input
+                    type="text"
+                    placeholder={`Topic #${idx + 1}`}
+                    value={item}
+                    onChange={(e) => {
+                      const updated = [...meetingAgenda];
+                      updated[idx] = e.target.value;
+                      setMeetingAgenda(updated);
+                    }}
+                  />
+                  {meetingAgenda.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setMeetingAgenda(meetingAgenda.filter((_, i) => i !== idx))}
+                      style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 8 }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setMeetingAgenda([...meetingAgenda, ''])}
+                style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', fontSize: 12, cursor: 'pointer', padding: 0 }}
+              >
+                + Add another topic
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setShowProjectMeetingModal(false)}
+                style={{ padding: '10px 20px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={submittingMeeting}
+                style={{ padding: '10px 24px' }}
+              >
+                {submittingMeeting ? 'Scheduling…' : 'Schedule Sync'}
+              </button>
+            </div>
+          </form>
         </Modal>
       )}
     </div>

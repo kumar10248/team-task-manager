@@ -11,7 +11,8 @@ import {
   Settings,
   Clock,
   Plus,
-  CornerDownLeft
+  CornerDownLeft,
+  Video,
 } from 'lucide-react';
 
 interface CommandItem {
@@ -120,6 +121,14 @@ export default function CommandPalette() {
       action: () => navigateTo('/tasks'),
     },
     {
+      id: 'nav-meetings',
+      title: 'Meetings',
+      subtitle: 'Schedule video calls & view agendas',
+      icon: Video,
+      category: 'Navigation',
+      action: () => navigateTo('/meetings'),
+    },
+    {
       id: 'nav-settings',
       title: 'Settings',
       subtitle: 'Profile and preferences',
@@ -134,6 +143,14 @@ export default function CommandPalette() {
       icon: Clock,
       category: 'Actions',
       action: toggleClock,
+    },
+    {
+      id: 'action-schedule-meeting',
+      title: 'Schedule Meeting',
+      subtitle: 'Instant video room & project sync',
+      icon: Video,
+      category: 'Actions',
+      action: () => navigateTo('/meetings?action=new'),
     },
     {
       id: 'action-new-project',

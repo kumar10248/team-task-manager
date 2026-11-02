@@ -232,6 +232,52 @@ export const notificationsApi = {
   markAsRead: (notificationIds?: string[]) => patch<{ success: boolean }>('/notifications/read', { notificationIds }),
 };
 
+// ─── Meetings ─────────────────────────────────────────────────────────────────
+
+export interface AgendaItem {
+  _id?: string;
+  title: string;
+  completed: boolean;
+}
+
+export interface Meeting {
+  _id: string;
+  title: string;
+  description?: string;
+  project?: { _id: string; name: string; color?: string } | null;
+  createdBy: User;
+  participants: User[];
+  startTime: string;
+  endTime: string;
+  meetLink: string;
+  status: 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
+  agenda?: AgendaItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateMeetingPayload {
+  title: string;
+  description?: string;
+  project?: string | null;
+  participants?: string[];
+  startTime: string;
+  endTime: string;
+  meetLink?: string;
+  agenda?: Array<{ title: string; completed?: boolean }>;
+}
+
+export const meetingsApi = {
+  list:   (params: { projectId?: string; status?: string; scope?: 'upcoming' | 'past' | 'all' } = {}) => {
+    const qs = new URLSearchParams(params as Record<string, string>).toString();
+    return get<{ success: boolean; meetings: Meeting[] }>(`/meetings${qs ? `?${qs}` : ''}`);
+  },
+  get:    (id: string) => get<{ success: boolean; meeting: Meeting }>(`/meetings/${id}`),
+  create: (d: CreateMeetingPayload) => post<{ success: boolean; meeting: Meeting }>('/meetings', d),
+  update: (id: string, d: Partial<CreateMeetingPayload & { status: string; agenda: AgendaItem[] }>) => patch<{ success: boolean; meeting: Meeting }>(`/meetings/${id}`, d),
+  delete: (id: string) => del<{ success: boolean; message: string }>(`/meetings/${id}`),
+};
+
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
 export const tokenHelpers = {

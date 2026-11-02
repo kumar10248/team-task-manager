@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '../lib/auth-context';
 import { authApi } from '../lib/api';
-import { LayoutDashboard, FolderKanban, CheckSquare, Settings, LogOut, Zap, Bell, LucideIcon, Search } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, CheckSquare, Settings, LogOut, Zap, Bell, LucideIcon, Search, Video } from 'lucide-react';
 import NotificationsPanel from './NotificationsPanel';
 import CommandPalette from './CommandPalette';
 
@@ -14,6 +14,7 @@ const nav: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Projects',  href: '/projects',  icon: FolderKanban },
   { label: 'My Tasks',  href: '/tasks',     icon: CheckSquare },
+  { label: 'Meetings',  href: '/meetings',  icon: Video },
   { label: 'Settings',  href: '/settings',  icon: Settings },
 ];
 
