@@ -3,7 +3,7 @@ import { useEffect, useState, useRef, FormEvent, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
-import { projectsApi, tasksApi, meetingsApi } from '@/lib/api';
+import { projectsApi, tasksApi, meetingsApi, getPersonalizedMeetLink } from '@/lib/api';
 import type { Project, ProjectMember, Task, TaskStatus, TaskPriority, Comment, ChecklistItem, Meeting } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
@@ -1071,7 +1071,7 @@ export default function ProjectDetailPage() {
       const start = new Date(meetingStartTime);
       const end = new Date(start.getTime() + meetingDuration * 60000);
       const slug = (project?.name || 'project').toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 16);
-      const link = meetingMeetLink.trim() || `https://p2p.mirotalk.com/join/taskforge-${slug}-${Date.now().toString(36)}`;
+      const link = meetingMeetLink.trim() || `https://p2p.mirotalk.com/join?room=taskforge-${slug}-${Date.now().toString(36)}`;
       const participants = members.map((m) => m.user?._id).filter(Boolean);
 
       const res = await meetingsApi.create({
@@ -2202,7 +2202,7 @@ export default function ProjectDetailPage() {
                           </div>
 
                           <a
-                            href={m.meetLink}
+                            href={getPersonalizedMeetLink(m.meetLink, user?.name)}
                             target="_blank"
                             rel="noopener noreferrer"
                             style={{

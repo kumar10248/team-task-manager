@@ -279,6 +279,32 @@ export const meetingsApi = {
   delete: (id: string) => del<{ success: boolean; message: string }>(`/meetings/${id}`),
 };
 
+/**
+ * Appends or injects the user's TaskForge account display name into the meeting link
+ * so WebRTC conference platforms (MiroTalk, Jitsi, etc.) pre-fill their name automatically.
+ */
+export function getPersonalizedMeetLink(meetLink: string, userName?: string): string {
+  if (!meetLink || !userName) return meetLink;
+  try {
+    const url = new URL(meetLink);
+    if (url.hostname.includes('mirotalk')) {
+      if (url.pathname.startsWith('/join/')) {
+        const roomName = url.pathname.replace('/join/', '');
+        return `https://${url.hostname}/join?room=${encodeURIComponent(roomName)}&name=${encodeURIComponent(userName)}`;
+      }
+      url.searchParams.set('name', userName);
+      return url.toString();
+    }
+    if (url.hostname.includes('jit.si')) {
+      return `${meetLink}#userInfo.displayName=${encodeURIComponent(JSON.stringify(userName))}`;
+    }
+    return meetLink;
+  } catch {
+    const sep = meetLink.includes('?') ? '&' : '?';
+    return `${meetLink}${sep}name=${encodeURIComponent(userName)}`;
+  }
+}
+
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
 export const tokenHelpers = {

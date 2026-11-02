@@ -10,6 +10,7 @@ import {
   Meeting,
   Project,
   User,
+  getPersonalizedMeetLink,
 } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
@@ -162,7 +163,7 @@ function MeetingsContent() {
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '-')
       .slice(0, 16);
-    return `https://p2p.mirotalk.com/join/taskforge-${slug}-${Date.now().toString(36)}`;
+    return `https://p2p.mirotalk.com/join?room=taskforge-${slug}-${Date.now().toString(36)}`;
   };
 
   const openScheduleModal = useCallback((prefillProject?: string) => {
@@ -211,7 +212,8 @@ function MeetingsContent() {
       if (res.success) {
         toast('Instant meeting created! Joining now…', 'success');
         setMeetings((prev) => [res.meeting, ...prev]);
-        window.open(meetLink, '_blank', 'noopener,noreferrer');
+        const personalizedLink = getPersonalizedMeetLink(meetLink, user.name);
+        window.open(personalizedLink, '_blank', 'noopener,noreferrer');
       }
     } catch (err: unknown) {
       console.error(err);
@@ -674,7 +676,7 @@ function MeetingsContent() {
               </button>
 
               <a
-                href={activeHeroMeeting.meetLink}
+                href={getPersonalizedMeetLink(activeHeroMeeting.meetLink, user?.name)}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
@@ -1153,7 +1155,7 @@ function MeetingsContent() {
                       )}
 
                       <a
-                        href={m.meetLink}
+                        href={getPersonalizedMeetLink(m.meetLink, user?.name)}
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{
@@ -1628,7 +1630,7 @@ function MeetingsContent() {
                 </button>
 
                 <a
-                  href={viewingMeeting.meetLink}
+                  href={getPersonalizedMeetLink(viewingMeeting.meetLink, user?.name)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="btn-primary"
