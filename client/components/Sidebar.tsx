@@ -4,8 +4,9 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '../lib/auth-context';
 import { authApi } from '../lib/api';
-import { LayoutDashboard, FolderKanban, CheckSquare, Settings, LogOut, Zap, Bell, LucideIcon } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, CheckSquare, Settings, LogOut, Zap, Bell, LucideIcon, Search } from 'lucide-react';
 import NotificationsPanel from './NotificationsPanel';
+import CommandPalette from './CommandPalette';
 
 interface NavItem { label: string; href: string; icon: LucideIcon }
 
@@ -42,13 +43,51 @@ export default function Sidebar() {
     <>
       <aside style={{ width:240, height:'100vh', position:'sticky', top:0, background:'rgba(255,255,255,0.01)', backdropFilter:'blur(20px)', borderRight:'1px solid var(--bg-border)', display:'flex', flexDirection:'column', flexShrink:0, zIndex:50 }}>
         {/* Logo */}
-        <div style={{ padding:'32px 24px 24px' }}>
+        <div style={{ padding:'32px 24px 16px' }}>
           <div style={{ display:'flex', alignItems:'center', gap:12 }}>
             <div style={{ width:32, height:32, background:'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 0 15px var(--accent-glow)' }}>
               <Zap size={16} color="#fff" fill="#fff" />
             </div>
             <span style={{ fontFamily:'Fraunces, serif', fontSize:20, fontWeight:500, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>TaskForge</span>
           </div>
+        </div>
+
+        {/* ⌘K Command Palette Quick Launcher */}
+        <div style={{ padding: '0 12px 12px' }}>
+          <button
+            onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              width: '100%',
+              padding: '8px 12px',
+              background: 'rgba(255, 255, 255, 0.025)',
+              border: '1px solid rgba(255, 255, 255, 0.06)',
+              borderRadius: 8,
+              color: 'var(--text-muted)',
+              fontSize: 12,
+              fontFamily: 'Outfit, sans-serif',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'rgba(129, 140, 248, 0.3)';
+              e.currentTarget.style.color = 'var(--text-primary)';
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.06)';
+              e.currentTarget.style.color = 'var(--text-muted)';
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.025)';
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Search size={14} color="var(--accent-primary)" />
+              <span>Search…</span>
+            </div>
+            <kbd style={{ fontSize: 10, padding: '2px 5px', borderRadius: 4, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}>⌘K</kbd>
+          </button>
         </div>
 
         {/* Nav */}
@@ -152,6 +191,7 @@ export default function Sidebar() {
       </aside>
 
       <NotificationsPanel isOpen={notifsOpen} onClose={() => setNotifsOpen(false)} />
+      <CommandPalette />
     </>
   );
 }

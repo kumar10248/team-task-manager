@@ -9,10 +9,18 @@ import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import Modal from '@/components/Model';
 import { ProjectsSkeleton } from '@/components/Skeletons';
-import { Plus, FolderKanban, Trash2, ArrowRight } from 'lucide-react';
+import { Plus, FolderKanban, Trash2, ArrowRight, Archive, ArchiveRestore, CheckCircle2 } from 'lucide-react';
 
 interface TaskStats { total: number; done: number }
-interface Project { _id: string; name: string; description?: string; color?: string; myRole: 'admin' | 'member'; taskStats?: TaskStats }
+interface Project {
+  _id: string;
+  name: string;
+  description?: string;
+  color?: string;
+  status?: 'active' | 'archived' | 'completed';
+  myRole: 'admin' | 'member';
+  taskStats?: TaskStats;
+}
 interface ProjectForm { name: string; description: string; color: string }
 interface FormField { key: keyof Pick<ProjectForm, 'name' | 'description'>; label: string; ph: string }
 
@@ -22,11 +30,20 @@ const FORM_FIELDS: FormField[] = [
   { key: 'description', label: 'Description',  ph: 'What is this project about?' },
 ];
 
-function ProjectCard({ project, onDelete }: { project: Project; onDelete: (p: Project) => void }): ReactElement {
+interface ProjectCardProps {
+  project: Project;
+  onDelete: (p: Project) => void;
+  onArchive: (p: Project) => void;
+  onRestore: (p: Project) => void;
+  onComplete: (p: Project) => void;
+}
+
+function ProjectCard({ project, onDelete, onArchive, onRestore, onComplete }: ProjectCardProps): ReactElement {
   const total = project.taskStats?.total ?? 0;
   const done  = project.taskStats?.done  ?? 0;
   const pct   = total ? Math.round((done / total) * 100) : 0;
   const baseColor = project.color ?? 'var(--accent-primary)';
+  const status = project.status || 'active';
 
   return (
     <div className="glass-panel" style={{ padding:0, overflow:'hidden', transition:'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)', cursor:'pointer', position: 'relative' }}
@@ -53,9 +70,30 @@ function ProjectCard({ project, onDelete }: { project: Project; onDelete: (p: Pr
             <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <FolderKanban size={16} color={baseColor} />
             </div>
-            <span style={{ fontFamily:'Fraunces, serif', fontSize: 18, color:'var(--text-primary)', fontWeight: 500, letterSpacing: '-0.01em' }}>{project.name}</span>
+            <div>
+              <span style={{ fontFamily:'Fraunces, serif', fontSize: 18, color:'var(--text-primary)', fontWeight: 500, letterSpacing: '-0.01em', display: 'block' }}>{project.name}</span>
+            </div>
           </div>
-          <span className={`badge badge-${project.myRole}`}>{project.myRole}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {status !== 'active' && (
+              <span
+                style={{
+                  fontSize: 10,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  fontWeight: 500,
+                  background: status === 'completed' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(251, 191, 36, 0.15)',
+                  color: status === 'completed' ? '#c084fc' : '#fbbf24',
+                  border: status === 'completed' ? '1px solid rgba(168, 85, 247, 0.3)' : '1px solid rgba(251, 191, 36, 0.3)',
+                }}
+              >
+                {status}
+              </span>
+            )}
+            <span className={`badge badge-${project.myRole}`}>{project.myRole}</span>
+          </div>
         </div>
         
         {project.description && (
@@ -77,12 +115,48 @@ function ProjectCard({ project, onDelete }: { project: Project; onDelete: (p: Pr
             <button className="btn-primary" style={{ fontSize: 12, padding:'8px 16px', display: 'flex', alignItems: 'center', gap: 6 }}>Open <ArrowRight size={14} /></button>
           </Link>
           {project.myRole === 'admin' && (
-            <button onClick={(e) => { e.preventDefault(); onDelete(project); }}
-              style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', display:'flex', padding: 6, borderRadius: 6, transition: 'all 0.2s' }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(248, 113, 113, 0.1)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}>
-              <Trash2 size={16} />
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {status !== 'completed' && status !== 'archived' && (
+                <button
+                  onClick={(e) => { e.preventDefault(); onComplete(project); }}
+                  style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', display:'flex', padding: 6, borderRadius: 6, transition:'all 0.2s' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = '#4ade80'; e.currentTarget.style.background = 'rgba(74, 222, 128, 0.1)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
+                  title="Mark project completed"
+                >
+                  <CheckCircle2 size={16} />
+                </button>
+              )}
+              {status === 'archived' ? (
+                <button
+                  onClick={(e) => { e.preventDefault(); onRestore(project); }}
+                  style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', display:'flex', padding: 6, borderRadius: 6, transition:'all 0.2s' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.background = 'rgba(129, 140, 248, 0.1)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
+                  title="Restore project from archive"
+                >
+                  <ArchiveRestore size={16} />
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => { e.preventDefault(); onArchive(project); }}
+                  style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', display:'flex', padding: 6, borderRadius: 6, transition:'all 0.2s' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = '#fbbf24'; e.currentTarget.style.background = 'rgba(251, 191, 36, 0.1)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
+                  title="Archive project"
+                >
+                  <Archive size={16} />
+                </button>
+              )}
+              <button onClick={(e) => { e.preventDefault(); onDelete(project); }}
+                style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', display:'flex', padding: 6, borderRadius: 6, transition:'all 0.2s' }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(248, 113, 113, 0.1)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
+                title="Delete project"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -101,6 +175,7 @@ export default function ProjectsPage(): ReactElement {
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [saving, setSaving]             = useState(false);
   const [form, setForm]                 = useState<ProjectForm>({ name:'', description:'', color: COLORS[0] });
+  const [statusTab, setStatusTab]       = useState<'active' | 'archived' | 'completed' | 'all'>('active');
 
   useEffect(() => { if (!authLoading && !user) router.push('/login'); }, [user, authLoading, router]);
 
@@ -110,6 +185,7 @@ export default function ProjectsPage(): ReactElement {
       setProjects(
         raw.map((p) => ({
           ...p,
+          status: p.status ?? 'active',
           myRole: (p.myRole ?? 'member') as 'admin' | 'member',
           taskStats: p.taskStats ?? { total: 0, done: 0 },
         }))
@@ -132,6 +208,7 @@ export default function ProjectsPage(): ReactElement {
         setProjects(
           raw.map((p) => ({
             ...p,
+            status: p.status ?? 'active',
             myRole: (p.myRole ?? 'member') as 'admin' | 'member',
             taskStats: p.taskStats ?? { total: 0, done: 0 },
           }))
@@ -170,6 +247,49 @@ export default function ProjectsPage(): ReactElement {
     } catch (err) { toast(err instanceof Error ? err.message : 'Error', 'error'); }
   };
 
+  const archiveProject = async (p: Project) => {
+    try {
+      await projectsApi.archive(p._id);
+      toast(`Project "${p.name}" archived`);
+      setProjects((prev) => prev.map((item) => item._id === p._id ? { ...item, status: 'archived' } : item));
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to archive project', 'error');
+    }
+  };
+
+  const restoreProject = async (p: Project) => {
+    try {
+      await projectsApi.restore(p._id);
+      toast(`Project "${p.name}" restored to active`);
+      setProjects((prev) => prev.map((item) => item._id === p._id ? { ...item, status: 'active' } : item));
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to restore project', 'error');
+    }
+  };
+
+  const completeProject = async (p: Project) => {
+    try {
+      await projectsApi.complete(p._id);
+      toast(`Project "${p.name}" marked as completed! 🎉`);
+      setProjects((prev) => prev.map((item) => item._id === p._id ? { ...item, status: 'completed' } : item));
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to complete project', 'error');
+    }
+  };
+
+  const activeCount = projects.filter((p) => (p.status || 'active') === 'active').length;
+  const completedCount = projects.filter((p) => p.status === 'completed').length;
+  const archivedCount = projects.filter((p) => p.status === 'archived').length;
+
+  const filteredProjects = projects.filter((p) => {
+    const s = p.status || 'active';
+    if (statusTab === 'all') return true;
+    if (statusTab === 'active') return s === 'active';
+    if (statusTab === 'completed') return s === 'completed';
+    if (statusTab === 'archived') return s === 'archived';
+    return true;
+  });
+
   if (loading) {
     return (
       <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
@@ -188,7 +308,7 @@ export default function ProjectsPage(): ReactElement {
         <div style={{ position:'absolute', top:'-10%', left:'50%', transform:'translateX(-50%)', width:'60vw', height:'40vw', background:'radial-gradient(circle, rgba(129, 140, 248, 0.05) 0%, transparent 60%)', filter:'blur(80px)', zIndex:-1, pointerEvents:'none' }} />
 
         <div className="animate-fade-in">
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: 40 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: 28 }}>
             <div>
               <p style={{ fontFamily:'Outfit, sans-serif', fontSize: 13, fontWeight:500, color:'var(--accent-primary)', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom: 8 }}>Workspace</p>
               <h1 style={{ fontFamily:'Fraunces, serif', fontSize: 36, fontWeight:400, color:'var(--text-primary)', letterSpacing:'-0.01em' }}>Projects</h1>
@@ -198,20 +318,88 @@ export default function ProjectsPage(): ReactElement {
             </button>
           </div>
 
-          {projects.length === 0 ? (
+          {/* ── Status Lifecycle Tabs ── */}
+          <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 32 }}>
+            {(
+              [
+                { key: 'active', label: 'Active', count: activeCount },
+                { key: 'completed', label: 'Completed', count: completedCount },
+                { key: 'archived', label: 'Archived', count: archivedCount },
+                { key: 'all', label: 'All Projects', count: projects.length },
+              ] as const
+            ).map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setStatusTab(t.key)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '12px 18px',
+                  fontFamily: 'Outfit, sans-serif',
+                  fontSize: 14,
+                  fontWeight: 500,
+                  letterSpacing: '0.04em',
+                  color: statusTab === t.key ? 'var(--accent-primary)' : 'var(--text-muted)',
+                  borderBottom: statusTab === t.key ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                  marginBottom: -1,
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+                onMouseEnter={(e) => {
+                  if (statusTab !== t.key) e.currentTarget.style.color = 'var(--text-primary)';
+                }}
+                onMouseLeave={(e) => {
+                  if (statusTab !== t.key) e.currentTarget.style.color = 'var(--text-muted)';
+                }}
+              >
+                <span>{t.label}</span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    padding: '2px 7px',
+                    borderRadius: 10,
+                    background: statusTab === t.key ? 'rgba(129, 140, 248, 0.2)' : 'rgba(255,255,255,0.05)',
+                    color: statusTab === t.key ? '#fff' : 'var(--text-muted)',
+                  }}
+                >
+                  {t.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {filteredProjects.length === 0 ? (
             <div className="glass-panel" style={{ textAlign:'center', padding:'80px 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div style={{ width: 64, height: 64, borderRadius: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
                 <FolderKanban size={32} color="var(--text-muted)" />
               </div>
-              <p style={{ fontFamily:'Fraunces, serif', fontSize: 24, color:'var(--text-primary)', marginBottom: 12 }}>No projects yet</p>
-              <p style={{ fontFamily:'Outfit, sans-serif', fontSize: 14, color:'var(--text-secondary)', marginBottom: 24 }}>Create your first project to get started.</p>
-              <button className="btn-primary" onClick={() => setShowModal(true)} style={{ padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Plus size={16}/> New Project
-              </button>
+              <p style={{ fontFamily:'Fraunces, serif', fontSize: 24, color:'var(--text-primary)', marginBottom: 12 }}>
+                {statusTab === 'archived' ? 'No archived projects' : statusTab === 'completed' ? 'No completed projects' : 'No projects yet'}
+              </p>
+              <p style={{ fontFamily:'Outfit, sans-serif', fontSize: 14, color:'var(--text-secondary)', marginBottom: 24 }}>
+                {statusTab === 'archived' ? 'Archived projects will appear here for review or restoration.' : 'Create your first project to get started.'}
+              </p>
+              {statusTab !== 'archived' && (
+                <button className="btn-primary" onClick={() => setShowModal(true)} style={{ padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Plus size={16}/> New Project
+                </button>
+              )}
             </div>
           ) : (
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(320px, 1fr))', gap: 24 }}>
-              {projects.map((p) => <ProjectCard key={p._id} project={p} onDelete={setDeleteTarget} />)}
+              {filteredProjects.map((p) => (
+                <ProjectCard
+                  key={p._id}
+                  project={p}
+                  onDelete={setDeleteTarget}
+                  onArchive={archiveProject}
+                  onRestore={restoreProject}
+                  onComplete={completeProject}
+                />
+              ))}
             </div>
           )}
         </div>

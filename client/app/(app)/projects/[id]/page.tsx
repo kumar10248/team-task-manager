@@ -1,19 +1,20 @@
 'use client';
-import { useEffect, useState, useRef, FormEvent } from 'react';
+import { useEffect, useState, useRef, FormEvent, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { projectsApi, tasksApi } from '@/lib/api';
-import type { Project, ProjectMember, Task, TaskStatus, TaskPriority, Comment } from '@/lib/api';
+import type { Project, ProjectMember, Task, TaskStatus, TaskPriority, Comment, ChecklistItem } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import Modal from '@/components/Model';
 import { BoardSkeleton } from '@/components/Skeletons';
 import { formatTimeAgo } from '@/lib/format';
+import { triggerConfetti } from '@/lib/confetti';
 import {
   Plus, ArrowLeft, Trash2, UserPlus, Pencil,
   MessageSquare, CornerDownLeft, GripVertical,
-  Search, X, User
+  Search, X, User, CheckSquare, Download, ExternalLink, Clock
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -44,11 +45,14 @@ interface TaskFormState {
   dueDate: string;
   assignedTo: string;
   status: TaskStatus;
+  tags: string[];
+  checklist: ChecklistItem[];
 }
 
 const EMPTY_TASK_FORM: TaskFormState = {
   title: '', description: '', priority: 'medium',
   dueDate: '', assignedTo: '', status: 'todo',
+  tags: [], checklist: [],
 };
 
 // ─── Field label helper ───────────────────────────────────────────────────────
@@ -124,7 +128,7 @@ function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelet
       <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: 3, background: pColor, boxShadow: `0 0 10px ${pColor}` }} />
 
       {/* Title + priority */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, flex: 1, marginRight: 8 }}>
           {canUpdateStatus && (
             <span style={{ color: 'var(--text-muted)', opacity: 0.45, cursor: 'grab', display: 'flex', paddingTop: 2 }} title="Drag to move card">
@@ -138,11 +142,58 @@ function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelet
         <span className={`badge badge-${task.priority}`}>{task.priority}</span>
       </div>
 
+      {/* Tags chips */}
+      {task.tags && task.tags.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+          {task.tags.map((tag) => (
+            <span
+              key={tag}
+              style={{
+                fontSize: 10,
+                fontFamily: 'Outfit, sans-serif',
+                fontWeight: 500,
+                padding: '2px 8px',
+                borderRadius: 10,
+                background: 'rgba(129, 140, 248, 0.08)',
+                color: '#a5b4fc',
+                border: '1px solid rgba(129, 140, 248, 0.18)',
+                letterSpacing: '0.02em',
+              }}
+            >
+              #{tag}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Description */}
       {task.description && (
-        <p style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
+        <p style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)', marginBottom: 10, lineHeight: 1.5 }}>
           {task.description.slice(0, 90)}{task.description.length > 90 ? '…' : ''}
         </p>
+      )}
+
+      {/* Checklist / Subtasks progress */}
+      {task.checklist && task.checklist.length > 0 && (
+        (() => {
+          const total = task.checklist.length;
+          const doneCount = task.checklist.filter((item) => item.completed).length;
+          const pct = Math.round((doneCount / total) * 100);
+          return (
+            <div style={{ marginBottom: 12, padding: '7px 10px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.04)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5, fontSize: 11, fontFamily: 'Outfit, sans-serif' }}>
+                <span style={{ color: doneCount === total ? '#4ade80' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 500 }}>
+                  <CheckSquare size={12} color={doneCount === total ? '#4ade80' : 'var(--accent-primary)'} />
+                  {doneCount}/{total} subtasks
+                </span>
+                <span style={{ color: 'var(--text-muted)' }}>{pct}%</span>
+              </div>
+              <div style={{ height: 3, background: 'rgba(255, 255, 255, 0.06)', borderRadius: 2, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${pct}%`, background: doneCount === total ? '#4ade80' : 'var(--accent-primary)', transition: 'width 0.3s' }} />
+              </div>
+            </div>
+          );
+        })()
       )}
 
       {/* Assignee + due date */}
@@ -596,6 +647,35 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
             const canManage = isMe || myRole === 'admin';
             const userInitial = author.initial;
 
+            // System activity & audit trail event
+            if (c.type === 'activity') {
+              return (
+                <div
+                  key={c._id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '8px 14px',
+                    borderRadius: 8,
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    borderLeft: '2px solid var(--accent-primary)',
+                    fontSize: 12,
+                    fontFamily: 'Outfit, sans-serif',
+                  }}
+                >
+                  <Clock size={13} color="var(--accent-primary)" style={{ flexShrink: 0 }} />
+                  <span style={{ color: 'var(--text-secondary)', flex: 1 }}>
+                    <strong style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{author.name}</strong>{' '}
+                    {c.text}
+                  </span>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
+                    {formatTimeAgo(c.createdAt)}
+                  </span>
+                </div>
+              );
+            }
+
             return (
               <div
                 key={c._id}
@@ -711,7 +791,35 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
                     </div>
                   ) : (
                     <div className="comment-markdown">
-                      <ReactMarkdown>{c.text}</ReactMarkdown>
+                      <ReactMarkdown
+                        components={{
+                          a: ({ href, children }) => (
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                background: 'rgba(129, 140, 248, 0.1)',
+                                color: '#a5b4fc',
+                                padding: '2px 8px',
+                                borderRadius: 6,
+                                textDecoration: 'none',
+                                border: '1px solid rgba(129, 140, 248, 0.25)',
+                                fontSize: '0.9em',
+                                wordBreak: 'break-all',
+                              }}
+                            >
+                              <ExternalLink size={11} />
+                              <span>{children}</span>
+                            </a>
+                          ),
+                        }}
+                      >
+                        {c.text.replace(/(?<!\(|\[)(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/g, '[$1]($1)')}
+                      </ReactMarkdown>
                     </div>
                   )}
                 </div>
@@ -837,15 +945,18 @@ export default function ProjectDetailPage() {
   };
 
   // Forms
-  const [taskForm, setTaskForm]     = useState<TaskFormState>(EMPTY_TASK_FORM);
-  const [memberForm, setMemberForm] = useState({ email: '', role: 'member' as 'admin' | 'member' });
-  const [saving, setSaving]         = useState(false);
+  const [taskForm, setTaskForm]                   = useState<TaskFormState>(EMPTY_TASK_FORM);
+  const [newChecklistTitle, setNewChecklistTitle] = useState('');
+  const [newTagInput, setNewTagInput]             = useState('');
+  const [memberForm, setMemberForm]               = useState({ email: '', role: 'member' as 'admin' | 'member' });
+  const [saving, setSaving]                       = useState(false);
 
   useEffect(() => { if (!authLoading && !user) router.push('/login'); }, [user, authLoading, router]);
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
-  const load = async () => {
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [pRes, tRes] = await Promise.all([
         projectsApi.get(id),
@@ -856,12 +967,14 @@ export default function ProjectDetailPage() {
       setMyRole(pRes.project.myRole ?? 'member');
       setTasks(tRes.tasks);
     } catch {
-      toast('Failed to load project', 'error');
-      router.push('/projects');
+      if (!silent) {
+        toast('Failed to load project', 'error');
+        router.push('/projects');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-  };
+  }, [id, router, toast]);
 
   useEffect(() => {
     let active = true;
@@ -887,10 +1000,71 @@ export default function ProjectDetailPage() {
         if (active) setLoading(false);
       });
 
+    // 30s background revalidation for real-time live updates between teammates
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        tasksApi.list(id, { limit: 1000 })
+          .then((tRes) => {
+            if (active) setTasks(tRes.tasks);
+          })
+          .catch(console.error);
+      }
+    }, 30000);
+
     return () => {
       active = false;
+      clearInterval(timer);
     };
   }, [user, id, router, toast]);
+
+  const openCreateTask = useCallback(() => {
+    setEditingTask(null);
+    setTaskForm(EMPTY_TASK_FORM);
+    setNewChecklistTitle('');
+    setNewTagInput('');
+    setShowTaskModal(true);
+  }, []);
+
+  const openEditTask = useCallback((task: Task) => {
+    setEditingTask(task);
+    setTaskForm({
+      title:       task.title,
+      description: task.description ?? '',
+      priority:    task.priority,
+      dueDate:     task.dueDate ? task.dueDate.slice(0, 10) : '',
+      assignedTo:  typeof task.assignedTo === 'object' && task.assignedTo ? task.assignedTo._id : '',
+      status:      task.status,
+      tags:        task.tags ? [...task.tags] : [],
+      checklist:   task.checklist ? task.checklist.map((c) => ({ ...c })) : [],
+    });
+    setNewChecklistTitle('');
+    setNewTagInput('');
+    setShowTaskModal(true);
+  }, []);
+
+  // Global project keyboard shortcuts (Esc, N)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+
+      if (e.key === 'Escape') {
+        setShowTaskModal(false);
+        setEditingTask(null);
+        setShowMemberModal(false);
+        setDeleteTaskTarget(null);
+        setCommentTask(null);
+      } else if (e.key.toLowerCase() === 'n' && !isInput && !showTaskModal && !commentTask && !showMemberModal) {
+        if (myRole === 'admin') {
+          e.preventDefault();
+          openCreateTask();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showTaskModal, commentTask, showMemberModal, myRole, openCreateTask]);
 
   // ── Task helpers ────────────────────────────────────────────────────────────
 
@@ -924,23 +1098,112 @@ export default function ProjectDetailPage() {
     return acc;
   }, {});
 
-  const openCreateTask = () => {
-    setEditingTask(null);
-    setTaskForm(EMPTY_TASK_FORM);
-    setShowTaskModal(true);
+  const addChecklistItem = () => {
+    const title = newChecklistTitle.trim();
+    if (!title) return;
+    setTaskForm((prev) => ({
+      ...prev,
+      checklist: [...prev.checklist, { title, completed: false }],
+    }));
+    setNewChecklistTitle('');
   };
 
-  const openEditTask = (task: Task) => {
-    setEditingTask(task);
-    setTaskForm({
-      title:       task.title,
-      description: task.description ?? '',
-      priority:    task.priority,
-      dueDate:     task.dueDate ? task.dueDate.slice(0, 10) : '',
-      assignedTo:  typeof task.assignedTo === 'object' && task.assignedTo ? task.assignedTo._id : '',
-      status:      task.status,
+  const toggleChecklistItem = (idx: number) => {
+    setTaskForm((prev) => ({
+      ...prev,
+      checklist: prev.checklist.map((item, i) =>
+        i === idx ? { ...item, completed: !item.completed } : item
+      ),
+    }));
+  };
+
+  const removeChecklistItem = (idx: number) => {
+    setTaskForm((prev) => ({
+      ...prev,
+      checklist: prev.checklist.filter((_, i) => i !== idx),
+    }));
+  };
+
+  const addTag = (tag: string) => {
+    const clean = tag.trim().toLowerCase().replace(/^#/, '');
+    if (!clean) return;
+    if (!taskForm.tags.includes(clean)) {
+      setTaskForm((prev) => ({ ...prev, tags: [...prev.tags, clean] }));
+    }
+    setNewTagInput('');
+  };
+
+  const removeTag = (tag: string) => {
+    setTaskForm((prev) => ({
+      ...prev,
+      tags: prev.tags.filter((t) => t !== tag),
+    }));
+  };
+
+  const exportTasksCSV = () => {
+    if (!tasks || tasks.length === 0) {
+      toast('No tasks to export', 'error');
+      return;
+    }
+
+    const headers = [
+      'Title',
+      'Status',
+      'Priority',
+      'Assignee Name',
+      'Assignee Email',
+      'Due Date',
+      'Subtasks Completed',
+      'Subtasks Total',
+      'Tags',
+      'Created Date',
+    ];
+
+    const escapeCSV = (val: string | number | boolean | null | undefined): string => {
+      const str = String(val ?? '');
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const rows = tasks.map((t) => {
+      const assigneeName = typeof t.assignedTo === 'object' && t.assignedTo ? t.assignedTo.name : 'Unassigned';
+      const assigneeEmail = typeof t.assignedTo === 'object' && t.assignedTo ? t.assignedTo.email : 'N/A';
+      const dueDate = t.dueDate ? new Date(t.dueDate).toLocaleDateString() : 'None';
+      const checklistDone = t.checklist ? t.checklist.filter((c) => c.completed).length : 0;
+      const checklistTotal = t.checklist ? t.checklist.length : 0;
+      const tagsStr = (t.tags || []).join('; ');
+      const createdDate = new Date(t.createdAt).toLocaleDateString();
+
+      return [
+        escapeCSV(t.title),
+        escapeCSV(t.status),
+        escapeCSV(t.priority),
+        escapeCSV(assigneeName),
+        escapeCSV(assigneeEmail),
+        escapeCSV(dueDate),
+        escapeCSV(checklistDone),
+        escapeCSV(checklistTotal),
+        escapeCSV(tagsStr),
+        escapeCSV(createdDate),
+      ].join(',');
     });
-    setShowTaskModal(true);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute(
+      'download',
+      `${(project?.name || 'project').toLowerCase().replace(/\s+/g, '_')}_tasks_${new Date().toISOString().slice(0, 10)}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast('Tasks exported to CSV');
   };
 
   const saveTask = async (e: FormEvent<HTMLFormElement>) => {
@@ -980,6 +1243,7 @@ export default function ProjectDetailPage() {
 
     if (status === 'done') {
       toast('Task completed! 🎉');
+      triggerConfetti();
     }
 
     try {
@@ -1108,12 +1372,178 @@ export default function ProjectDetailPage() {
       )}
 
       {/* Assignee */}
-      <div style={{ marginBottom: 32 }}>
+      <div style={{ marginBottom: 20 }}>
         <FieldLabel>Assign To</FieldLabel>
         <select value={taskForm.assignedTo} onChange={(e) => setTaskForm({ ...taskForm, assignedTo: e.target.value })}>
           <option value="">Unassigned</option>
           {members.map((m) => <option key={m.user._id} value={m.user._id}>{m.user.name}</option>)}
         </select>
+      </div>
+
+      {/* Tags / Categories */}
+      <div style={{ marginBottom: 20 }}>
+        <FieldLabel>Tags / Labels</FieldLabel>
+        {/* Presets */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+          {['bug', 'feature', 'frontend', 'backend', 'design', 'v1.0'].map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => addTag(preset)}
+              style={{
+                fontSize: 11,
+                fontFamily: 'Outfit, sans-serif',
+                padding: '2px 8px',
+                borderRadius: 10,
+                background: taskForm.tags.includes(preset) ? 'rgba(129, 140, 248, 0.2)' : 'rgba(255, 255, 255, 0.03)',
+                color: taskForm.tags.includes(preset) ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                border: taskForm.tags.includes(preset) ? '1px solid var(--accent-primary)' : '1px solid rgba(255, 255, 255, 0.08)',
+                cursor: 'pointer',
+              }}
+            >
+              + {preset}
+            </button>
+          ))}
+        </div>
+
+        {/* Selected tags */}
+        {taskForm.tags.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+            {taskForm.tags.map((tag) => (
+              <span
+                key={tag}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '2px 8px',
+                  borderRadius: 10,
+                  fontSize: 11,
+                  background: 'rgba(129, 140, 248, 0.12)',
+                  color: '#a5b4fc',
+                  border: '1px solid rgba(129, 140, 248, 0.25)',
+                }}
+              >
+                #{tag}
+                <button
+                  type="button"
+                  onClick={() => removeTag(tag)}
+                  style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', padding: 0, display: 'flex' }}
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            type="text"
+            placeholder="Type custom tag and press Enter…"
+            value={newTagInput}
+            onChange={(e) => setNewTagInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addTag(newTagInput);
+              }
+            }}
+            style={{ flex: 1, fontSize: 13 }}
+          />
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => addTag(newTagInput)}
+            style={{ padding: '0 14px', fontSize: 12 }}
+          >
+            Add
+          </button>
+        </div>
+      </div>
+
+      {/* Subtasks Checklist */}
+      <div style={{ marginBottom: 28, padding: 16, background: 'rgba(255, 255, 255, 0.02)', borderRadius: 12, border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <FieldLabel>
+            Subtask Checklist {taskForm.checklist.length > 0 && `(${taskForm.checklist.filter(c => c.completed).length}/${taskForm.checklist.length})`}
+          </FieldLabel>
+          {taskForm.checklist.length > 0 && (
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
+              {Math.round((taskForm.checklist.filter(c => c.completed).length / taskForm.checklist.length) * 100)}% done
+            </span>
+          )}
+        </div>
+
+        {/* Existing subtasks */}
+        {taskForm.checklist.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+            {taskForm.checklist.map((item, idx) => (
+              <div
+                key={idx}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '7px 10px',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  borderRadius: 8,
+                  border: '1px solid rgba(255, 255, 255, 0.04)',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={item.completed}
+                  onChange={() => toggleChecklistItem(idx)}
+                  style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent-primary)' }}
+                />
+                <span
+                  style={{
+                    flex: 1,
+                    fontSize: 13,
+                    fontFamily: 'Outfit, sans-serif',
+                    color: item.completed ? 'var(--text-muted)' : 'var(--text-primary)',
+                    textDecoration: item.completed ? 'line-through' : 'none',
+                  }}
+                >
+                  {item.title}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeChecklistItem(idx)}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, display: 'flex' }}
+                  title="Remove subtask"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            type="text"
+            placeholder="Add subtask checklist item…"
+            value={newChecklistTitle}
+            onChange={(e) => setNewChecklistTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addChecklistItem();
+              }
+            }}
+            style={{ flex: 1, fontSize: 13 }}
+          />
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={addChecklistItem}
+            style={{ padding: '0 14px', fontSize: 12 }}
+          >
+            + Add
+          </button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
@@ -1152,6 +1582,14 @@ export default function ProjectDetailPage() {
                 <span className={`badge badge-${myRole}`} style={{ fontSize: 13 }}>{myRole}</span>
               </div>
               <div style={{ display: 'flex', gap: 12 }}>
+                <button
+                  className="btn-ghost"
+                  onClick={exportTasksCSV}
+                  style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}
+                  title="Export all project tasks to CSV"
+                >
+                  <Download size={15} /> Export CSV
+                </button>
                 {myRole === 'admin' && (
                   <>
                     <button className="btn-ghost" onClick={() => setShowMemberModal(true)} style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 8 }}>

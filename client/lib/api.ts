@@ -39,10 +39,17 @@ export interface ProjectMember {
 export type TaskStatus   = 'todo' | 'in_progress' | 'done';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 
+export interface ChecklistItem {
+  _id?: string;
+  title: string;
+  completed: boolean;
+}
+
 export interface Comment {
   _id: string;
   user: User;
   text: string;
+  type?: 'comment' | 'activity';
   createdAt: string;
   editedAt?: string;
 }
@@ -59,6 +66,7 @@ export interface Task {
   dueDate: string | null;
   completedAt: string | null;
   tags: string[];
+  checklist?: ChecklistItem[];
   comments: Comment[];
   isOverdue?: boolean;
   createdAt: string;
@@ -141,6 +149,9 @@ export const projectsApi = {
   create:           (d: CreateProjectPayload)             => post<{ success: boolean; project: Project }>('/projects', d),
   get:              (id: string)                          => get<ProjectResponse>(`/projects/${id}`),
   update:           (id: string, d: Partial<CreateProjectPayload & { status: string }>) => patch<{ success: boolean; project: Project }>(`/projects/${id}`, d),
+  archive:          (id: string)                          => patch<{ success: boolean; project: Project }>(`/projects/${id}`, { status: 'archived' }),
+  restore:          (id: string)                          => patch<{ success: boolean; project: Project }>(`/projects/${id}`, { status: 'active' }),
+  complete:         (id: string)                          => patch<{ success: boolean; project: Project }>(`/projects/${id}`, { status: 'completed' }),
   delete:           (id: string)                          => del<{ success: boolean; message: string }>(`/projects/${id}`),
   addMember:        (pid: string, d: { email: string; role: 'admin' | 'member' }) => post<{ success: boolean; member: ProjectMember }>(`/projects/${pid}/members`, d),
   updateMemberRole: (pid: string, uid: string, d: { role: 'admin' | 'member' })  => patch<{ success: boolean; member: ProjectMember }>(`/projects/${pid}/members/${uid}`, d),
@@ -156,6 +167,7 @@ export interface CreateTaskPayload {
   priority?: TaskPriority;
   dueDate?: string;
   tags?: string[];
+  checklist?: ChecklistItem[];
 }
 
 export interface TaskListResponse { success: boolean; tasks: Task[]; pagination: { total: number; page: number; limit: number; pages: number } }
@@ -180,7 +192,7 @@ export const tasksApi = {
   },
   create:        (pid: string, d: CreateTaskPayload)                => post<TaskResponse>(`/projects/${pid}/tasks`, d),
   get:           (pid: string, tid: string)                         => get<TaskResponse>(`/projects/${pid}/tasks/${tid}`),
-  update:        (pid: string, tid: string, d: Partial<CreateTaskPayload & { status: TaskStatus }>) => patch<TaskResponse>(`/projects/${pid}/tasks/${tid}`, d),
+  update:        (pid: string, tid: string, d: Partial<CreateTaskPayload & { status: TaskStatus; checklist: ChecklistItem[] }>) => patch<TaskResponse>(`/projects/${pid}/tasks/${tid}`, d),
   delete:        (pid: string, tid: string)                         => del<{ success: boolean; message: string }>(`/projects/${pid}/tasks/${tid}`),
   addComment:    (pid: string, tid: string, d: { text: string })    => post<{ success: boolean; comment: Comment }>(`/projects/${pid}/tasks/${tid}/comments`, d),
   updateComment: (pid: string, tid: string, cid: string, d: { text: string }) => patch<{ success: boolean; comment: Comment }>(`/projects/${pid}/tasks/${tid}/comments/${cid}`, d),

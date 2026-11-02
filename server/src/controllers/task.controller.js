@@ -1,5 +1,6 @@
 const Task = require('../models/Task');
 const ProjectMember = require('../models/ProjectMember');
+const User = require('../models/User');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -71,7 +72,7 @@ exports.createTask = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Only admins can create tasks' });
     }
 
-    const { title, description, assignedTo, priority, dueDate, tags } = req.body;
+    const { title, description, assignedTo, priority, dueDate, tags, checklist } = req.body;
 
     // Validate required fields
     if (!title || !title.trim()) {
@@ -96,7 +97,8 @@ exports.createTask = async (req, res) => {
       assignedTo: assignedTo || null,
       priority,
       dueDate,
-      tags
+      tags: Array.isArray(tags) ? tags : [],
+      checklist: Array.isArray(checklist) ? checklist : [],
     });
 
     const populated = await Task.findById(task._id)
@@ -215,23 +217,24 @@ exports.updateTask = async (req, res) => {
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
 
     if (membership.role === 'member') {
-      // Members can only update their own tasks' status
+      // Members can only update their own tasks' status and checklist
       if (task.assignedTo?.toString() !== req.user._id.toString()) {
         return res.status(403).json({ success: false, message: 'Access denied' });
       }
-      if (Object.keys(req.body).some((k) => k !== 'status')) {
+      if (Object.keys(req.body).some((k) => k !== 'status' && k !== 'checklist')) {
         return res
           .status(403)
-          .json({ success: false, message: 'Members can only update task status' });
+          .json({ success: false, message: 'Members can only update task status and checklist' });
       }
     }
 
-    const adminFields = ['title', 'description', 'assignedTo', 'priority', 'dueDate', 'tags'];
-    const memberFields = ['status'];
-    const allowedFields = membership.role === 'admin' ? [...adminFields, ...memberFields] : memberFields;
+    const adminFields = ['title', 'description', 'assignedTo', 'priority', 'dueDate', 'tags', 'checklist'];
+    const memberFields = ['status', 'checklist'];
+    const allowedFields = membership.role === 'admin' ? [...adminFields, 'status'] : memberFields;
 
-    const oldAssignee = task.assignedTo?.toString();
+    const oldAssignee = task.assignedTo ? task.assignedTo.toString() : null;
     const oldStatus = task.status;
+    const oldPriority = task.priority;
 
     const updates = {};
     allowedFields.forEach((field) => {
@@ -246,6 +249,44 @@ exports.updateTask = async (req, res) => {
           .status(400)
           .json({ success: false, message: 'Assignee must be a project member' });
       }
+    }
+
+    // ── Audit Trail / System Activity Events ───────────────────────────────────
+    const statusLabels = { todo: 'To Do', in_progress: 'In Progress', done: 'Done' };
+
+    if (updates.status && updates.status !== oldStatus) {
+      const from = statusLabels[oldStatus] || oldStatus;
+      const to = statusLabels[updates.status] || updates.status;
+      task.comments.push({
+        user: req.user._id,
+        text: `moved this task from ${from} to ${to}`,
+        type: 'activity',
+      });
+    }
+
+    if (updates.assignedTo !== undefined && updates.assignedTo !== oldAssignee) {
+      if (updates.assignedTo) {
+        const newAssigneeUser = await User.findById(updates.assignedTo).select('name').lean();
+        task.comments.push({
+          user: req.user._id,
+          text: `reassigned task to ${newAssigneeUser?.name || 'team member'}`,
+          type: 'activity',
+        });
+      } else if (oldAssignee) {
+        task.comments.push({
+          user: req.user._id,
+          text: `unassigned this task`,
+          type: 'activity',
+        });
+      }
+    }
+
+    if (updates.priority && updates.priority !== oldPriority) {
+      task.comments.push({
+        user: req.user._id,
+        text: `changed priority from ${oldPriority} to ${updates.priority}`,
+        type: 'activity',
+      });
     }
 
     Object.assign(task, updates);
@@ -267,7 +308,8 @@ exports.updateTask = async (req, res) => {
 
     const populated = await Task.findById(task._id)
       .populate('assignedTo', 'name email avatar')
-      .populate('createdBy', 'name email');
+      .populate('createdBy', 'name email')
+      .populate('comments.user', 'name email avatar');
 
     res.json({ success: true, task: populated });
   } catch (err) {

@@ -13,9 +13,30 @@ const commentSchema = new mongoose.Schema(
       trim: true,
       maxlength: [1000, 'Comment cannot exceed 1000 characters'],
     },
+    type: {
+      type: String,
+      enum: ['comment', 'activity'],
+      default: 'comment',
+    },
     editedAt: {
       type: Date,
       default: null,
+    },
+  },
+  { timestamps: true }
+);
+
+const checklistItemSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      required: [true, 'Checklist item title is required'],
+      trim: true,
+      maxlength: 200,
+    },
+    completed: {
+      type: Boolean,
+      default: false,
     },
   },
   { timestamps: true }
@@ -76,6 +97,7 @@ const taskSchema = new mongoose.Schema(
         maxlength: 30,
       },
     ],
+    checklist: [checklistItemSchema],
     comments: [commentSchema],
   },
   {

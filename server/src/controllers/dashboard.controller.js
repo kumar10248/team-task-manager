@@ -115,8 +115,8 @@ exports.getDashboard = async (req, res) => {
         .limit(10)
         .lean(),
 
-      // 7. Projects list
-      Project.find({ _id: { $in: projectIds } }).lean(),
+      // 7. Projects list (exclude archived projects from dashboard overview)
+      Project.find({ _id: { $in: projectIds }, status: { $ne: 'archived' } }).lean(),
 
       // 8. Project task statistics
       Task.aggregate([
