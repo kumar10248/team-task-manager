@@ -1071,7 +1071,7 @@ export default function ProjectDetailPage() {
       const start = new Date(meetingStartTime);
       const end = new Date(start.getTime() + meetingDuration * 60000);
       const slug = (project?.name || 'project').toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 16);
-      const link = meetingMeetLink.trim() || `https://p2p.mirotalk.com/join?room=taskforge-${slug}-${Date.now().toString(36)}`;
+      const link = meetingMeetLink.trim() || `https://p2p.mirotalk.com/join?room=taskforge-${slug}-${Date.now().toString(36)}&notify=0`;
       const participants = members.map((m) => m.user?._id).filter(Boolean);
 
       const res = await meetingsApi.create({

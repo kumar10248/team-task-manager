@@ -4,8 +4,10 @@ const AttendanceLog = require('../models/AttendanceLog');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
+
 const signToken = (userId) =>
-  jwt.sign({ id: userId }, process.env.JWT_SECRET, {
+  jwt.sign({ id: userId }, JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || '1d',
   });
 

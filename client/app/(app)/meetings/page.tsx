@@ -163,7 +163,7 @@ function MeetingsContent() {
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '-')
       .slice(0, 16);
-    return `https://p2p.mirotalk.com/join?room=taskforge-${slug}-${Date.now().toString(36)}`;
+    return `https://p2p.mirotalk.com/join?room=taskforge-${slug}-${Date.now().toString(36)}&notify=0`;
   };
 
   const openScheduleModal = useCallback((prefillProject?: string) => {

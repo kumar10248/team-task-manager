@@ -93,7 +93,9 @@ export interface DashboardData {
 
 function getToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem('token');
+  const t = localStorage.getItem('token');
+  if (!t || t === 'null' || t === 'undefined') return null;
+  return t;
 }
 
 interface ApiError extends Error {
@@ -114,6 +116,12 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
   if (!res.ok) {
     const error: ApiError = new Error((data as { message?: string }).message ?? `Request failed: ${res.status}`);
     error.status = res.status;
+    if (res.status === 401 && typeof window !== 'undefined') {
+      const isAuthPage = window.location.pathname.startsWith('/login') || window.location.pathname.startsWith('/signup');
+      if (!isAuthPage) {
+        tokenHelpers.clear();
+      }
+    }
     throw error;
   }
   return data as T;
@@ -281,34 +289,54 @@ export const meetingsApi = {
 
 /**
  * Appends or injects the user's TaskForge account display name into the meeting link
- * so WebRTC conference platforms (MiroTalk, Jitsi, etc.) pre-fill their name automatically.
+ * so WebRTC conference platforms (MiroTalk, Jitsi, etc.) pre-fill their name automatically,
+ * and sets `notify=0` so MiroTalk suppresses the automatic "Share the room" QR popup modal.
  */
 export function getPersonalizedMeetLink(meetLink: string, userName?: string): string {
-  if (!meetLink || !userName) return meetLink;
+  if (!meetLink) return meetLink;
   try {
     const url = new URL(meetLink);
     if (url.hostname.includes('mirotalk')) {
       if (url.pathname.startsWith('/join/')) {
         const roomName = url.pathname.replace('/join/', '');
-        return `https://${url.hostname}/join?room=${encodeURIComponent(roomName)}&name=${encodeURIComponent(userName)}`;
+        const nameParam = userName ? `&name=${encodeURIComponent(userName)}` : '';
+        return `https://${url.hostname}/join?room=${encodeURIComponent(roomName)}${nameParam}&notify=0`;
       }
-      url.searchParams.set('name', userName);
+      if (userName) {
+        url.searchParams.set('name', userName);
+      }
+      // notify=0 tells MiroTalk client to skip the "Share the room" QR code modal on join
+      url.searchParams.set('notify', '0');
       return url.toString();
     }
     if (url.hostname.includes('jit.si')) {
-      return `${meetLink}#userInfo.displayName=${encodeURIComponent(JSON.stringify(userName))}`;
+      if (userName) {
+        return `${meetLink}#userInfo.displayName=${encodeURIComponent(JSON.stringify(userName))}`;
+      }
+      return meetLink;
     }
     return meetLink;
   } catch {
     const sep = meetLink.includes('?') ? '&' : '?';
-    return `${meetLink}${sep}name=${encodeURIComponent(userName)}`;
+    const namePart = userName ? `name=${encodeURIComponent(userName)}&` : '';
+    return `${meetLink}${sep}${namePart}notify=0`;
   }
 }
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
 export const tokenHelpers = {
-  set:   (t: string) => localStorage.setItem('token', t),
-  clear: ()          => localStorage.removeItem('token'),
-  get:   getToken,
+  set: (t: string) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('token', t);
+      document.cookie = `token=${t}; path=/; max-age=86400; SameSite=Lax`;
+    }
+  },
+  clear: () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('token');
+      document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+    }
+  },
+  get: getToken,
 };

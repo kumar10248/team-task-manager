@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
+const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
+
 /**
  * protect — verifies JWT and attaches req.user.
  * Supports token in Authorization header (Bearer) or cookie.
@@ -15,11 +17,15 @@ exports.protect = async (req, res, next) => {
       token = req.cookies.token;
     }
 
-    if (!token) {
+    if (!token || token === 'null' || token === 'undefined' || token === 'Bearer') {
       return res.status(401).json({ success: false, message: 'Not authenticated' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (!decoded || !decoded.id) {
+      return res.status(401).json({ success: false, message: 'Invalid token' });
+    }
+
     const user = await User.findById(decoded.id);
 
     if (!user) {
@@ -32,12 +38,18 @@ exports.protect = async (req, res, next) => {
     req.user = user;
     next();
   } catch (err) {
-    if (err.name === 'JsonWebTokenError') {
+    console.error('[auth.middleware.protect] Auth failed:', err.message);
+    if (
+      err.name === 'JsonWebTokenError' ||
+      err.name === 'CastError' ||
+      err.name === 'NotBeforeError' ||
+      err.message?.includes('jwt')
+    ) {
       return res.status(401).json({ success: false, message: 'Invalid token' });
     }
     if (err.name === 'TokenExpiredError') {
       return res.status(401).json({ success: false, message: 'Token expired, please log in again' });
     }
-    res.status(500).json({ success: false, message: 'Authentication error' });
+    return res.status(401).json({ success: false, message: err.message || 'Authentication error' });
   }
 };
