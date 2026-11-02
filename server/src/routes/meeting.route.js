@@ -7,6 +7,7 @@ router.use(protect);
 
 router.get('/', meeting.getMeetings);
 router.post('/', meeting.createMeeting);
+router.get('/teammates', meeting.getTeammates);
 router.get('/:id', meeting.getMeeting);
 router.patch('/:id', meeting.updateMeeting);
 router.delete('/:id', meeting.deleteMeeting);

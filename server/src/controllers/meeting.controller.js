@@ -12,16 +12,24 @@ exports.getMeetings = async (req, res) => {
     const memberships = await ProjectMember.find({ user: req.user._id }).lean();
     const projectIds = memberships.map((m) => m.project);
 
-    const baseFilter = {
-      $or: [
-        { createdBy: req.user._id },
-        { participants: req.user._id },
-        { project: { $in: projectIds } },
-      ],
-    };
+    let baseFilter = {};
 
     if (req.query.projectId) {
       baseFilter.project = req.query.projectId;
+    } else {
+      // Find all meetings relevant to the user:
+      // 1. Created by user
+      // 2. User is listed in participants
+      // 3. Meeting is linked to user's projects
+      // 4. Meeting is a workspace sync (project is null)
+      baseFilter = {
+        $or: [
+          { createdBy: req.user._id },
+          { participants: req.user._id },
+          { project: { $in: projectIds } },
+          { project: null },
+        ],
+      };
     }
 
     const now = new Date();
@@ -93,12 +101,52 @@ exports.createMeeting = async (req, res) => {
       finalLink = `https://meet.jit.si/taskforge-${slug}-${Date.now().toString(36)}`;
     }
 
+    // Determine final participants list:
+    let finalParticipants = Array.isArray(participants) ? [...participants] : [];
+
+    // Always include the host
+    if (!finalParticipants.some((p) => p && p.toString() === req.user._id.toString())) {
+      finalParticipants.push(req.user._id);
+    }
+
+    // If meeting is attached to a project, auto-include all project members
+    if (project) {
+      const pMembers = await ProjectMember.find({ project }).lean();
+      pMembers.forEach((pm) => {
+        if (pm.user && !finalParticipants.some((p) => p && p.toString() === pm.user.toString())) {
+          finalParticipants.push(pm.user);
+        }
+      });
+    } else {
+      // Workspace meeting: include all workspace teammates
+      const userMemberships = await ProjectMember.find({ user: req.user._id }).lean();
+      const userProjectIds = userMemberships.map((m) => m.project);
+      const teamMemberships = await ProjectMember.find({ project: { $in: userProjectIds } }).lean();
+      const allTeammates = [...new Set(teamMemberships.map((m) => m.user.toString()))];
+
+      if (allTeammates.length > 0) {
+        allTeammates.forEach((uid) => {
+          if (!finalParticipants.some((p) => p && p.toString() === uid)) {
+            finalParticipants.push(uid);
+          }
+        });
+      } else {
+        const User = require('../models/User');
+        const allUsers = await User.find({ isActive: true }).select('_id').lean();
+        allUsers.forEach((u) => {
+          if (!finalParticipants.some((p) => p && p.toString() === u._id.toString())) {
+            finalParticipants.push(u._id);
+          }
+        });
+      }
+    }
+
     const meeting = await Meeting.create({
       title: title.trim(),
       description: description || '',
       project: project || null,
       createdBy: req.user._id,
-      participants: Array.isArray(participants) ? participants : [],
+      participants: finalParticipants,
       startTime: new Date(startTime),
       endTime: new Date(endTime),
       meetLink: finalLink,
@@ -111,24 +159,65 @@ exports.createMeeting = async (req, res) => {
       .populate('project', 'name color');
 
     // Notify participants
-    if (Array.isArray(participants)) {
-      participants.forEach((uid) => {
-        if (uid && uid.toString() !== req.user._id.toString()) {
-          createNotification({
-            recipient: uid,
-            sender: req.user._id,
-            type: 'system',
-            project: project || undefined,
-            text: `scheduled meeting "${title}" for ${new Date(startTime).toLocaleString()}`,
-          });
-        }
-      });
-    }
+    finalParticipants.forEach((uid) => {
+      if (uid && uid.toString() !== req.user._id.toString()) {
+        createNotification({
+          recipient: uid,
+          sender: req.user._id,
+          type: 'system',
+          project: project || undefined,
+          text: `scheduled meeting "${title}" for ${new Date(startTime).toLocaleString()}`,
+        });
+      }
+    });
 
     res.status(201).json({ success: true, meeting: populated });
   } catch (err) {
     console.error('Failed to create meeting:', err);
     res.status(500).json({ success: false, message: 'Failed to create meeting' });
+  }
+};
+
+/**
+ * GET /api/meetings/teammates
+ * Get all teammates in workspace to invite to meetings.
+ */
+exports.getTeammates = async (req, res) => {
+  try {
+    const User = require('../models/User');
+    const memberships = await ProjectMember.find({ user: req.user._id }).lean();
+    const projectIds = memberships.map((m) => m.project);
+    const teamMemberships = await ProjectMember.find({ project: { $in: projectIds } })
+      .populate('user', 'name email avatar isClockedIn')
+      .lean();
+
+    const userMap = new Map();
+    teamMemberships.forEach((m) => {
+      if (m.user && m.user._id) {
+        userMap.set(m.user._id.toString(), m.user);
+      }
+    });
+
+    // Also include user themselves
+    userMap.set(req.user._id.toString(), {
+      _id: req.user._id,
+      name: req.user.name,
+      email: req.user.email,
+      avatar: req.user.avatar,
+    });
+
+    // If still just 1 user, include all active users in system
+    if (userMap.size <= 1) {
+      const allUsers = await User.find({ isActive: true })
+        .select('name email avatar isClockedIn')
+        .lean();
+      allUsers.forEach((u) => userMap.set(u._id.toString(), u));
+    }
+
+    res.json({ success: true, teammates: Array.from(userMap.values()) });
+  } catch (err) {
+    console.error('Failed to get teammates:', err);
+    res.status(500).json({ success: false, message: 'Failed to fetch teammates' });
   }
 };
 

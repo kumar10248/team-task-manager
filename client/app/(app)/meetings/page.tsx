@@ -124,19 +124,31 @@ function MeetingsContent() {
     };
   }, [user]);
 
-  // When project changes in schedule form, load its members
+  // When project changes in schedule form, load its members (or workspace teammates if general meeting)
   useEffect(() => {
+    let active = true;
     if (!formProject) {
-      Promise.resolve().then(() => setProjectMembers([]));
+      meetingsApi
+        .getTeammates()
+        .then((res) => {
+          if (!active) return;
+          const mates = (res.teammates || []).filter(Boolean);
+          setProjectMembers(mates);
+          // Auto-select all teammates by default so meeting is available to everyone
+          setFormParticipants(mates.map((u) => u._id));
+        })
+        .catch(console.error);
       return;
     }
-    let active = true;
+
     projectsApi
       .get(formProject)
       .then((res) => {
         if (!active) return;
         const mems = (res.members || []).map((m) => m.user).filter(Boolean);
         setProjectMembers(mems);
+        // Auto-select all project members by default
+        setFormParticipants(mems.map((u) => u._id));
       })
       .catch(console.error);
 
@@ -168,9 +180,8 @@ function MeetingsContent() {
     setFormDurationMinutes(30);
     setFormMeetLink('');
     setFormAgenda(['Review progress and blockers', 'Plan next steps']);
-    setFormParticipants(user ? [user._id] : []);
     setShowScheduleModal(true);
-  }, [user]);
+  }, []);
 
   // Check URL query param ?action=new
   useEffect(() => {
@@ -195,7 +206,6 @@ function MeetingsContent() {
         endTime: end.toISOString(),
         meetLink,
         agenda: [{ title: 'Ad-hoc discussion', completed: false }],
-        participants: [user._id],
       });
 
       if (res.success) {
@@ -1425,20 +1435,23 @@ function MeetingsContent() {
             {/* Participants Picker */}
             {projectMembers.length > 0 && (
               <div style={{ marginBottom: 24 }}>
-                <label
-                  style={{
-                    display: 'block',
-                    fontSize: 12,
-                    fontFamily: 'Outfit, sans-serif',
-                    letterSpacing: '0.06em',
-                    color: 'var(--text-secondary)',
-                    textTransform: 'uppercase',
-                    marginBottom: 8,
-                    fontWeight: 500,
-                  }}
-                >
-                  Invite Project Teammates
-                </label>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <label
+                    style={{
+                      fontSize: 12,
+                      fontFamily: 'Outfit, sans-serif',
+                      letterSpacing: '0.06em',
+                      color: 'var(--text-secondary)',
+                      textTransform: 'uppercase',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {formProject ? 'Project Teammates (Attendees)' : 'Invite Workspace Teammates'}
+                  </label>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    {formParticipants.length} selected
+                  </span>
+                </div>
                 <div
                   style={{
                     display: 'flex',

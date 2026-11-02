@@ -272,6 +272,7 @@ export const meetingsApi = {
     const qs = new URLSearchParams(params as Record<string, string>).toString();
     return get<{ success: boolean; meetings: Meeting[] }>(`/meetings${qs ? `?${qs}` : ''}`);
   },
+  getTeammates: () => get<{ success: boolean; teammates: User[] }>('/meetings/teammates'),
   get:    (id: string) => get<{ success: boolean; meeting: Meeting }>(`/meetings/${id}`),
   create: (d: CreateMeetingPayload) => post<{ success: boolean; meeting: Meeting }>('/meetings', d),
   update: (id: string, d: Partial<CreateMeetingPayload & { status: string; agenda: AgendaItem[] }>) => patch<{ success: boolean; meeting: Meeting }>(`/meetings/${id}`, d),
