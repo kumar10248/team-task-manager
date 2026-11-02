@@ -98,7 +98,7 @@ exports.createMeeting = async (req, res) => {
         .toLowerCase()
         .replace(/[^a-z0-9]/g, '-')
         .slice(0, 16);
-      finalLink = `https://meet.jit.si/taskforge-${slug}-${Date.now().toString(36)}`;
+      finalLink = `https://p2p.mirotalk.com/join/taskforge-${slug}-${Date.now().toString(36)}`;
     }
 
     // Determine final participants list:

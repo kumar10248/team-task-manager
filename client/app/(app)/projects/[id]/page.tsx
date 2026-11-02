@@ -1071,7 +1071,7 @@ export default function ProjectDetailPage() {
       const start = new Date(meetingStartTime);
       const end = new Date(start.getTime() + meetingDuration * 60000);
       const slug = (project?.name || 'project').toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 16);
-      const link = meetingMeetLink.trim() || `https://meet.jit.si/taskforge-${slug}-${Date.now().toString(36)}`;
+      const link = meetingMeetLink.trim() || `https://p2p.mirotalk.com/join/taskforge-${slug}-${Date.now().toString(36)}`;
       const participants = members.map((m) => m.user?._id).filter(Boolean);
 
       const res = await meetingsApi.create({
@@ -2372,7 +2372,7 @@ export default function ProjectDetailPage() {
               <FieldLabel>Video Call Link</FieldLabel>
               <input
                 type="url"
-                placeholder="Leave blank for auto-generated Jitsi room or paste Google Meet link"
+                placeholder="Leave blank for instant WebRTC room (no login) or paste Google Meet link"
                 value={meetingMeetLink}
                 onChange={(e) => setMeetingMeetLink(e.target.value)}
               />

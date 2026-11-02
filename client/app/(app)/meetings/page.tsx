@@ -157,12 +157,12 @@ function MeetingsContent() {
     };
   }, [formProject]);
 
-  const generateJitsiUrl = (title: string) => {
+  const generateInstantRoomUrl = (title: string) => {
     const slug = (title || 'sync')
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '-')
       .slice(0, 16);
-    return `https://meet.jit.si/taskforge-${slug}-${Date.now().toString(36)}`;
+    return `https://p2p.mirotalk.com/join/taskforge-${slug}-${Date.now().toString(36)}`;
   };
 
   const openScheduleModal = useCallback((prefillProject?: string) => {
@@ -199,7 +199,7 @@ function MeetingsContent() {
     try {
       const start = new Date();
       const end = new Date(start.getTime() + 45 * 60000);
-      const meetLink = generateJitsiUrl('instant-meeting');
+      const meetLink = generateInstantRoomUrl('instant-meeting');
       const res = await meetingsApi.create({
         title: `Quick Sync (${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`,
         startTime: start.toISOString(),
@@ -238,7 +238,7 @@ function MeetingsContent() {
       setSubmitting(true);
       const startDate = new Date(formStartTime);
       const endDate = new Date(startDate.getTime() + formDurationMinutes * 60000);
-      const link = formMeetLink.trim() || generateJitsiUrl(formTitle);
+      const link = formMeetLink.trim() || generateInstantRoomUrl(formTitle);
 
       const agendaItems = formAgenda
         .map((t) => t.trim())
@@ -1347,7 +1347,7 @@ function MeetingsContent() {
                 </label>
                 <button
                   type="button"
-                  onClick={() => setFormMeetLink(generateJitsiUrl(formTitle))}
+                  onClick={() => setFormMeetLink(generateInstantRoomUrl(formTitle))}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -1359,12 +1359,12 @@ function MeetingsContent() {
                     gap: 4,
                   }}
                 >
-                  <Sparkles size={12} /> Auto-generate Jitsi link
+                  <Sparkles size={12} /> Auto-generate room (No login required)
                 </button>
               </div>
               <input
                 type="url"
-                placeholder="Leave blank for auto-generated room or paste Google Meet / Zoom link"
+                placeholder="Leave blank for instant WebRTC room (no login) or paste Google Meet link"
                 value={formMeetLink}
                 onChange={(e) => setFormMeetLink(e.target.value)}
               />
