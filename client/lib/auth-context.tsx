@@ -15,17 +15,16 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser]       = useState<User | null>(null);
-  const [loading, setLoading] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true;
-    return !!tokenHelpers.get();
-  });
+  const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    const token = tokenHelpers.get();
-    if (!token) return;
+    // Check session on mount via httpOnly cookie or stored token
     authApi.getMe()
       .then((d) => setUser(d.user))
-      .catch(() => tokenHelpers.clear())
+      .catch(() => {
+        tokenHelpers.clear();
+        setUser(null);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -41,10 +40,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(d.user);
   };
 
-  const logout = (): void => {
-    tokenHelpers.clear();
-    setUser(null);
-    window.location.href = '/login';
+  const logout = async (): Promise<void> => {
+    try {
+      await authApi.logout();
+    } catch {
+      // Ignore network errors on logout
+    } finally {
+      tokenHelpers.clear();
+      setUser(null);
+      window.location.href = '/login';
+    }
   };
 
   return (

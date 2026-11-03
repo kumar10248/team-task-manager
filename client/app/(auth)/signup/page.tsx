@@ -1,8 +1,9 @@
 'use client';
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
+import { tokenHelpers } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import { Zap, Eye, EyeOff } from 'lucide-react';
 
@@ -15,12 +16,19 @@ const fields: FieldConfig[] = [
 ];
 
 export default function SignupPage() {
-  const { signup }   = useAuth();
+  const { user, loading: authLoading, signup } = useAuth();
   const toast        = useToast();
   const router       = useRouter();
   const [form, setForm]         = useState<SignupForm>({ name: '', email: '', password: '' });
   const [loading, setLoading]   = useState(false);
   const [showPass, setShowPass] = useState(false);
+
+  // Force redirect to /dashboard if user has a valid token / is already authenticated
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace('/dashboard');
+    }
+  }, [user, authLoading, router]);
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -38,6 +46,25 @@ export default function SignupPage() {
       setLoading(false);
     }
   };
+
+  // If user is already authenticated or validating active token, show redirect state
+  if (user || (authLoading && tokenHelpers.get())) {
+    return (
+      <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#050505', padding:16 }}>
+        <div style={{ textAlign:'center' }}>
+          <div style={{ width:56, height:56, background:'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', borderRadius:16, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px', boxShadow:'0 0 30px rgba(129, 140, 248, 0.4)' }}>
+            <Zap size={28} color="#ffffff" fill="#ffffff" />
+          </div>
+          <h2 style={{ fontFamily:'Fraunces, serif', fontSize:24, color:'var(--text-primary)', marginBottom:8 }}>
+            {user ? 'Redirecting to Dashboard…' : 'Validating session…'}
+          </h2>
+          <p style={{ color:'var(--text-secondary)', fontSize:14, fontFamily:'Outfit, sans-serif' }}>
+            You are already logged in. Taking you to your workspace.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#050505', padding:16, position:'relative', overflow:'hidden' }}>

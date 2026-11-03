@@ -110,7 +110,11 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
     ...(options.headers as Record<string, string> | undefined),
   };
 
-  const res = await fetch(`${BASE_URL}/api${path}`, { ...options, headers });
+  const res = await fetch(`${BASE_URL}/api${path}`, {
+    ...options,
+    headers,
+    credentials: 'include', // Ensures HTTP-only cookies are sent and received
+  });
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
@@ -139,6 +143,7 @@ export interface AuthResponse { success: boolean; token: string; user: User }
 export const authApi = {
   signup:         (d: { name: string; email: string; password: string }) => post<AuthResponse>('/auth/signup', d),
   login:          (d: { email: string; password: string })               => post<AuthResponse>('/auth/login', d),
+  logout:         ()                                                      => post<{ success: boolean; message: string }>('/auth/logout', {}),
   getMe:          ()                                                      => get<{ success: boolean; user: User }>('/auth/me'),
   updateMe:       (d: Partial<Pick<User, 'name' | 'avatar'>>)            => patch<{ success: boolean; user: User }>('/auth/me', d),
   changePassword: (d: { currentPassword: string; newPassword: string }) => post<AuthResponse>('/auth/change-password', d),

@@ -13,6 +13,19 @@ const signToken = (userId) =>
 
 const sendTokenResponse = (user, statusCode, res) => {
   const token = signToken(user._id);
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  const cookieOptions = {
+    expires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 1 day
+    maxAge: 24 * 60 * 60 * 1000,
+    httpOnly: true, // Prevents client-side script access (mitigates XSS)
+    secure: isProduction, // HTTPS only in production
+    sameSite: isProduction ? (process.env.COOKIE_SAMESITE || 'none') : 'lax',
+    path: '/',
+  };
+
+  res.cookie('token', token, cookieOptions);
+
   res.status(statusCode).json({
     success: true,
     token,
@@ -80,6 +93,21 @@ exports.login = async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, message: 'Server error during login' });
   }
+};
+
+/**
+ * POST /api/auth/logout
+ * Clears the secure httpOnly token cookie.
+ */
+exports.logout = async (req, res) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? (process.env.COOKIE_SAMESITE || 'none') : 'lax',
+    path: '/',
+  });
+  res.json({ success: true, message: 'Logged out successfully' });
 };
 
 const MAX_SHIFT_HOURS = 14;
