@@ -1,11 +1,14 @@
 'use client';
-import { useEffect, useState, ReactElement } from 'react';
+import { useEffect, useState, useCallback, ReactElement } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { authApi } from '@/lib/api';
+import { authApi, projectsApi, ProjectInvitation, ProjectAddPrivacy } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
-import { User, Lock, Save, Bell, Moon, Smartphone, ShieldCheck, Mail } from 'lucide-react';
+import {
+  User, Lock, Save, Bell, Moon, Smartphone, ShieldCheck, Mail,
+  Shield, Users, UserPlus, ShieldAlert, Check, X, Clock, CheckCircle2
+} from 'lucide-react';
 
 interface ProfileForm {
   name: string;
@@ -22,13 +25,17 @@ export default function SettingsPage(): ReactElement {
   const router = useRouter();
   const toast = useToast();
 
-  const [tab, setTab]             = useState<'profile' | 'preferences' | 'security'>('profile');
-  const [profile, setProfile]     = useState<ProfileForm>({ name: '', email: '' });
-  const [passwords, setPasswords] = useState<PasswordForm>({ currentPassword: '', newPassword: '' });
-  const [saving, setSaving]       = useState<boolean>(false);
-  const [savingPw, setSavingPw]   = useState<boolean>(false);
+  const [tab, setTab]                         = useState<'profile' | 'privacy' | 'preferences' | 'security'>('profile');
+  const [profile, setProfile]                 = useState<ProfileForm>({ name: '', email: '' });
+  const [privacy, setPrivacy]                 = useState<ProjectAddPrivacy>('anyone');
+  const [savingPrivacy, setSavingPrivacy]     = useState<boolean>(false);
+  const [invitations, setInvitations]         = useState<ProjectInvitation[]>([]);
+  const [loadingInvites, setLoadingInvites]   = useState<boolean>(false);
+  const [passwords, setPasswords]             = useState<PasswordForm>({ currentPassword: '', newPassword: '' });
+  const [saving, setSaving]                   = useState<boolean>(false);
+  const [savingPw, setSavingPw]               = useState<boolean>(false);
   
-  // Dummy preferences state
+  // Preferences state
   const [prefs, setPrefs] = useState({
     emailNotifs: true,
     pushNotifs: false,
@@ -44,9 +51,36 @@ export default function SettingsPage(): ReactElement {
     if (user) {
       queueMicrotask(() => {
         setProfile({ name: user.name, email: user.email });
+        if (user.projectAddPrivacy) {
+          setPrivacy(user.projectAddPrivacy);
+        }
       });
     }
   }, [user]);
+
+  const fetchInvitations = useCallback(() => {
+    setLoadingInvites(true);
+    projectsApi.getInvitations()
+      .then((res) => {
+        if (res.success) setInvitations(res.invitations);
+      })
+      .catch(console.error)
+      .finally(() => setLoadingInvites(false));
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (user && tab === 'privacy') {
+      projectsApi.getInvitations()
+        .then((res) => {
+          if (active && res.success) setInvitations(res.invitations);
+        })
+        .catch(console.error);
+    }
+    return () => {
+      active = false;
+    };
+  }, [user, tab]);
 
   const saveProfile = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
@@ -54,11 +88,47 @@ export default function SettingsPage(): ReactElement {
     try {
       const d = await authApi.updateMe({ name: profile.name });
       setUser(d.user);
-      toast('Profile updated successfully');
+      toast('Profile updated successfully', 'success');
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : 'An error occurred', 'error');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const savePrivacy = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
+    e.preventDefault();
+    setSavingPrivacy(true);
+    try {
+      const res = await authApi.updateMe({ projectAddPrivacy: privacy });
+      setUser(res.user);
+      toast('Project member privacy settings updated successfully!', 'success');
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to update privacy settings', 'error');
+    } finally {
+      setSavingPrivacy(false);
+    }
+  };
+
+  const handleAcceptInvitation = async (invId: string) => {
+    try {
+      const res = await projectsApi.acceptInvitation(invId);
+      toast(res.message || 'Successfully joined project! 🎉', 'success');
+      setInvitations((prev) => prev.filter((i) => i._id !== invId));
+      fetchInvitations();
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to accept invitation', 'error');
+    }
+  };
+
+  const handleDeclineInvitation = async (invId: string) => {
+    try {
+      await projectsApi.declineInvitation(invId);
+      toast('Invitation declined', 'success');
+      setInvitations((prev) => prev.filter((i) => i._id !== invId));
+      fetchInvitations();
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to decline invitation', 'error');
     }
   };
 
@@ -71,7 +141,7 @@ export default function SettingsPage(): ReactElement {
     setSavingPw(true);
     try {
       await authApi.changePassword(passwords);
-      toast('Password changed successfully');
+      toast('Password changed successfully', 'success');
       setPasswords({ currentPassword: '', newPassword: '' });
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : 'An error occurred', 'error');
@@ -106,7 +176,7 @@ export default function SettingsPage(): ReactElement {
 
           {/* ── Tabs ── */}
           <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 40 }}>
-            {(['profile', 'preferences', 'security'] as const).map((t) => (
+            {(['profile', 'privacy', 'preferences', 'security'] as const).map((t) => (
               <button key={t} onClick={() => setTab(t)} style={{
                 background: 'none', border: 'none', cursor: 'pointer', padding: '12px 24px',
                 fontFamily: 'Outfit, sans-serif', fontSize: 14, fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase',
@@ -180,6 +250,263 @@ export default function SettingsPage(): ReactElement {
                     </button>
                   </form>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══ PRIVACY TAB ══ */}
+          {tab === 'privacy' && (
+            <div className="animate-slide-up">
+              {/* Privacy Setting Card */}
+              <div className="glass-panel" style={{ padding: 32, marginBottom: 32 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(129, 140, 248, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(129, 140, 248, 0.25)' }}>
+                    <Shield size={18} color="var(--accent-primary)" />
+                  </div>
+                  <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 22, color: 'var(--text-primary)', fontWeight: 400 }}>
+                    Project Member Privacy
+                  </h2>
+                </div>
+                <p style={{ fontSize: 14, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)', marginBottom: 24, lineHeight: 1.5 }}>
+                  Configure who can add you to projects and whether additions require your review and acceptance.
+                </p>
+
+                <form onSubmit={savePrivacy}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 28 }}>
+                    {/* Option 1: Anyone */}
+                    <div
+                      onClick={() => setPrivacy('anyone')}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 16,
+                        padding: 18,
+                        borderRadius: 14,
+                        background: privacy === 'anyone' ? 'rgba(129, 140, 248, 0.08)' : 'rgba(255, 255, 255, 0.02)',
+                        border: privacy === 'anyone' ? '1px solid var(--accent-primary)' : '1px solid rgba(255, 255, 255, 0.05)',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="privacy"
+                        checked={privacy === 'anyone'}
+                        onChange={() => setPrivacy('anyone')}
+                        style={{ marginTop: 4, width: 18, height: 18, accentColor: 'var(--accent-primary)', cursor: 'pointer' }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                          <Users size={16} color="var(--accent-primary)" />
+                          <span style={{ fontSize: 15, fontFamily: 'Outfit, sans-serif', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            Anyone can add you directly
+                          </span>
+                          <span style={{ fontSize: 11, fontFamily: 'Outfit, sans-serif', padding: '2px 8px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }}>
+                            Default
+                          </span>
+                        </div>
+                        <p style={{ fontSize: 13, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
+                          Any project admin can immediately add you as a project member. You become a member instantly without prior approval.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Option 2: Request */}
+                    <div
+                      onClick={() => setPrivacy('request')}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 16,
+                        padding: 18,
+                        borderRadius: 14,
+                        background: privacy === 'request' ? 'rgba(129, 140, 248, 0.08)' : 'rgba(255, 255, 255, 0.02)',
+                        border: privacy === 'request' ? '1px solid var(--accent-primary)' : '1px solid rgba(255, 255, 255, 0.05)',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="privacy"
+                        checked={privacy === 'request'}
+                        onChange={() => setPrivacy('request')}
+                        style={{ marginTop: 4, width: 18, height: 18, accentColor: 'var(--accent-primary)', cursor: 'pointer' }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                          <UserPlus size={16} color="var(--accent-primary)" />
+                          <span style={{ fontSize: 15, fontFamily: 'Outfit, sans-serif', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            Request for adding in project member (Requires acceptance)
+                          </span>
+                          <span style={{ fontSize: 11, fontFamily: 'Outfit, sans-serif', padding: '2px 8px', borderRadius: 10, background: 'rgba(74, 222, 128, 0.1)', color: '#4ade80', border: '1px solid rgba(74, 222, 128, 0.2)' }}>
+                            Recommended
+                          </span>
+                        </div>
+                        <p style={{ fontSize: 13, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
+                          When an admin adds you, an invitation request is sent to you first. You are only added to the project after you review and accept the request.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Option 3: Nobody */}
+                    <div
+                      onClick={() => setPrivacy('nobody')}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 16,
+                        padding: 18,
+                        borderRadius: 14,
+                        background: privacy === 'nobody' ? 'rgba(248, 113, 113, 0.08)' : 'rgba(255, 255, 255, 0.02)',
+                        border: privacy === 'nobody' ? '1px solid #f87171' : '1px solid rgba(255, 255, 255, 0.05)',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="privacy"
+                        checked={privacy === 'nobody'}
+                        onChange={() => setPrivacy('nobody')}
+                        style={{ marginTop: 4, width: 18, height: 18, accentColor: '#f87171', cursor: 'pointer' }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                          <ShieldAlert size={16} color="#f87171" />
+                          <span style={{ fontSize: 15, fontFamily: 'Outfit, sans-serif', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            Nobody can add you as project member
+                          </span>
+                          <span style={{ fontSize: 11, fontFamily: 'Outfit, sans-serif', padding: '2px 8px', borderRadius: 10, background: 'rgba(248, 113, 113, 0.1)', color: '#f87171', border: '1px solid rgba(248, 113, 113, 0.2)' }}>
+                            Strict
+                          </span>
+                        </div>
+                        <p style={{ fontSize: 13, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
+                          Completely blocks everyone from adding you to any project. Admins who try to add you will be notified that your privacy settings do not permit it.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="btn-primary"
+                    disabled={savingPrivacy}
+                    style={{ padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 8 }}
+                  >
+                    <Save size={16} /> {savingPrivacy ? 'Saving Privacy Setting…' : 'Save Privacy Setting'}
+                  </button>
+                </form>
+              </div>
+
+              {/* Pending Invitations Section */}
+              <div className="glass-panel" style={{ padding: 32 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255, 255, 255, 0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                      <Clock size={18} color="var(--accent-secondary)" />
+                    </div>
+                    <div>
+                      <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 22, color: 'var(--text-primary)', fontWeight: 400 }}>
+                        Pending Project Invitations
+                      </h2>
+                    </div>
+                  </div>
+                  {invitations.length > 0 && (
+                    <span style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', padding: '3px 10px', borderRadius: 12, background: 'rgba(129, 140, 248, 0.15)', color: 'var(--accent-primary)', fontWeight: 600 }}>
+                      {invitations.length} Pending
+                    </span>
+                  )}
+                </div>
+
+                {loadingInvites ? (
+                  <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)', fontSize: 14 }}>
+                    Loading invitations…
+                  </div>
+                ) : invitations.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px 16px', background: 'rgba(255, 255, 255, 0.01)', borderRadius: 12, border: '1px dashed var(--bg-border)' }}>
+                    <CheckCircle2 size={32} color="var(--accent-primary)" style={{ margin: '0 auto 12px' }} />
+                    <p style={{ fontFamily: 'Fraunces, serif', fontSize: 18, color: 'var(--text-primary)', marginBottom: 6 }}>
+                      No Pending Invitations
+                    </p>
+                    <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: 13, color: 'var(--text-muted)' }}>
+                      When a team admin requests to add you to their project, invitations will appear here for you to accept or decline.
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {invitations.map((inv) => (
+                      <div
+                        key={inv._id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '16px 20px',
+                          borderRadius: 12,
+                          background: 'rgba(255, 255, 255, 0.02)',
+                          border: '1px solid rgba(255, 255, 255, 0.05)',
+                          flexWrap: 'wrap',
+                          gap: 16,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div style={{ width: 12, height: 12, borderRadius: '50%', background: inv.project?.color || 'var(--accent-primary)', boxShadow: `0 0 10px ${inv.project?.color || 'var(--accent-primary)'}` }} />
+                          <div>
+                            <div style={{ fontSize: 15, fontFamily: 'Outfit, sans-serif', fontWeight: 600, color: 'var(--text-primary)' }}>
+                              {inv.project?.name || 'Project'}
+                            </div>
+                            <div style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)', marginTop: 2 }}>
+                              Invited by <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{inv.invitedBy?.name || 'Admin'}</span> as <span className="badge badge-progress" style={{ fontSize: 10, padding: '1px 6px' }}>{inv.role}</span> • {new Date(inv.createdAt).toLocaleDateString()}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 10 }}>
+                          <button
+                            type="button"
+                            onClick={() => handleAcceptInvitation(inv._id)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '8px 16px',
+                              fontSize: 13,
+                              background: 'rgba(74, 222, 128, 0.15)',
+                              color: '#4ade80',
+                              border: '1px solid rgba(74, 222, 128, 0.3)',
+                              borderRadius: 8,
+                              cursor: 'pointer',
+                              fontWeight: 600,
+                              transition: 'all 0.2s',
+                            }}
+                          >
+                            <Check size={14} /> Accept & Join
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeclineInvitation(inv._id)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '8px 14px',
+                              fontSize: 13,
+                              background: 'rgba(255, 255, 255, 0.04)',
+                              color: 'var(--text-muted)',
+                              border: '1px solid rgba(255, 255, 255, 0.08)',
+                              borderRadius: 8,
+                              cursor: 'pointer',
+                              transition: 'all 0.2s',
+                            }}
+                          >
+                            <X size={14} /> Decline
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

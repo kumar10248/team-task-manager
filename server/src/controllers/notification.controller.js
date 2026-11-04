@@ -8,6 +8,8 @@ exports.getNotifications = async (req, res) => {
   try {
     const notifications = await Notification.find({ recipient: req.user._id })
       .populate('sender', 'name avatar')
+      .populate('project', 'name color')
+      .populate('invitation', 'status role project')
       .sort({ createdAt: -1 })
       .limit(50)
       .lean(); // limit to recent 50
@@ -45,10 +47,10 @@ exports.markAsRead = async (req, res) => {
 /**
  * Helper function to create a notification (used internally by other controllers)
  */
-exports.createNotification = async ({ recipient, sender, type, project, task, text }) => {
+exports.createNotification = async ({ recipient, sender, type, project, task, invitation, text }) => {
   try {
-    if (recipient.toString() === sender.toString()) return; // don't notify self
-    await Notification.create({ recipient, sender, type, project, task, text });
+    if (sender && recipient && recipient.toString() === sender.toString()) return; // don't notify self
+    await Notification.create({ recipient, sender, type, project, task, invitation, text });
   } catch (err) {
     console.error('Failed to create notification', err);
   }

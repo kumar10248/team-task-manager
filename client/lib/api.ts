@@ -4,6 +4,8 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 // ─── Domain types ─────────────────────────────────────────────────────────────
 
+export type ProjectAddPrivacy = 'anyone' | 'nobody' | 'request';
+
 export interface User {
   _id: string;
   name: string;
@@ -12,6 +14,17 @@ export interface User {
   isClockedIn?: boolean;
   lastClockIn?: string;
   lastClockOut?: string;
+  projectAddPrivacy?: ProjectAddPrivacy;
+  createdAt: string;
+}
+
+export interface ProjectInvitation {
+  _id: string;
+  project: { _id: string; name: string; color?: string; description?: string };
+  user: User;
+  invitedBy: User;
+  role: 'admin' | 'member';
+  status: 'pending' | 'accepted' | 'declined';
   createdAt: string;
 }
 
@@ -145,7 +158,7 @@ export const authApi = {
   login:          (d: { email: string; password: string })               => post<AuthResponse>('/auth/login', d),
   logout:         ()                                                      => post<{ success: boolean; message: string }>('/auth/logout', {}),
   getMe:          ()                                                      => get<{ success: boolean; user: User }>('/auth/me'),
-  updateMe:       (d: Partial<Pick<User, 'name' | 'avatar'>>)            => patch<{ success: boolean; user: User }>('/auth/me', d),
+  updateMe:       (d: Partial<Pick<User, 'name' | 'avatar' | 'projectAddPrivacy'>>) => patch<{ success: boolean; user: User }>('/auth/me', d),
   changePassword: (d: { currentPassword: string; newPassword: string }) => post<AuthResponse>('/auth/change-password', d),
   clockIn:        ()                                                      => post<{ success: boolean; user: User }>('/auth/clock-in', {}),
   clockOut:       ()                                                      => post<{ success: boolean; user: User }>('/auth/clock-out', {}),
@@ -158,17 +171,20 @@ export interface ProjectListResponse  { success: boolean; projects: Project[] }
 export interface ProjectResponse      { success: boolean; project: Project; members: ProjectMember[]; taskStats?: unknown }
 
 export const projectsApi = {
-  list:             ()                                    => get<ProjectListResponse>('/projects'),
-  create:           (d: CreateProjectPayload)             => post<{ success: boolean; project: Project }>('/projects', d),
-  get:              (id: string)                          => get<ProjectResponse>(`/projects/${id}`),
-  update:           (id: string, d: Partial<CreateProjectPayload & { status: string }>) => patch<{ success: boolean; project: Project }>(`/projects/${id}`, d),
-  archive:          (id: string)                          => patch<{ success: boolean; project: Project }>(`/projects/${id}`, { status: 'archived' }),
-  restore:          (id: string)                          => patch<{ success: boolean; project: Project }>(`/projects/${id}`, { status: 'active' }),
-  complete:         (id: string)                          => patch<{ success: boolean; project: Project }>(`/projects/${id}`, { status: 'completed' }),
-  delete:           (id: string)                          => del<{ success: boolean; message: string }>(`/projects/${id}`),
-  addMember:        (pid: string, d: { email: string; role: 'admin' | 'member' }) => post<{ success: boolean; member: ProjectMember }>(`/projects/${pid}/members`, d),
-  updateMemberRole: (pid: string, uid: string, d: { role: 'admin' | 'member' })  => patch<{ success: boolean; member: ProjectMember }>(`/projects/${pid}/members/${uid}`, d),
-  removeMember:     (pid: string, uid: string)            => del<{ success: boolean; message: string }>(`/projects/${pid}/members/${uid}`),
+  list:              ()                                    => get<ProjectListResponse>('/projects'),
+  create:            (d: CreateProjectPayload)             => post<{ success: boolean; project: Project }>('/projects', d),
+  get:               (id: string)                          => get<ProjectResponse>(`/projects/${id}`),
+  update:            (id: string, d: Partial<CreateProjectPayload & { status: string }>) => patch<{ success: boolean; project: Project }>(`/projects/${id}`, d),
+  archive:           (id: string)                          => patch<{ success: boolean; project: Project }>(`/projects/${id}`, { status: 'archived' }),
+  restore:           (id: string)                          => patch<{ success: boolean; project: Project }>(`/projects/${id}`, { status: 'active' }),
+  complete:          (id: string)                          => patch<{ success: boolean; project: Project }>(`/projects/${id}`, { status: 'completed' }),
+  delete:            (id: string)                          => del<{ success: boolean; message: string }>(`/projects/${id}`),
+  addMember:         (pid: string, d: { email: string; role: 'admin' | 'member' }) => post<{ success: boolean; member?: ProjectMember; requiresApproval?: boolean; message?: string }>(`/projects/${pid}/members`, d),
+  updateMemberRole:  (pid: string, uid: string, d: { role: 'admin' | 'member' })  => patch<{ success: boolean; member: ProjectMember }>(`/projects/${pid}/members/${uid}`, d),
+  removeMember:      (pid: string, uid: string)            => del<{ success: boolean; message: string }>(`/projects/${pid}/members/${uid}`),
+  getInvitations:    ()                                    => get<{ success: boolean; invitations: ProjectInvitation[] }>('/projects/invitations'),
+  acceptInvitation:  (id: string)                          => post<{ success: boolean; message: string; project: string }>(`/projects/invitations/${id}/accept`, {}),
+  declineInvitation: (id: string)                          => post<{ success: boolean; message: string }>(`/projects/invitations/${id}/decline`, {}),
 };
 
 // ─── Tasks ───────────────────────────────────────────────────────────────────
@@ -231,13 +247,14 @@ export const dashboardApi = {
 
 export interface Notification {
   _id: string;
-  type: 'mention' | 'assignment' | 'status' | 'comment' | 'system';
+  type: 'mention' | 'assignment' | 'status' | 'comment' | 'system' | 'invitation';
   text: string;
   isRead: boolean;
   createdAt: string;
   sender?: { _id: string; name: string; avatar: string | null };
-  project?: string;
+  project?: string | { _id: string; name: string; color?: string };
   task?: string;
+  invitation?: string | { _id: string; status: 'pending' | 'accepted' | 'declined'; role: string; project?: { _id: string; name: string } };
 }
 
 export const notificationsApi = {

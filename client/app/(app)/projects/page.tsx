@@ -4,12 +4,12 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { projectsApi } from '@/lib/api';
-import type { CreateProjectPayload } from '@/lib/api';
+import type { CreateProjectPayload, ProjectInvitation } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import Modal from '@/components/Model';
 import { ProjectsSkeleton } from '@/components/Skeletons';
-import { Plus, FolderKanban, Trash2, ArrowRight, Archive, ArchiveRestore, CheckCircle2 } from 'lucide-react';
+import { Plus, FolderKanban, Trash2, ArrowRight, Archive, ArchiveRestore, CheckCircle2, UserPlus, Check, X } from 'lucide-react';
 
 interface TaskStats { total: number; done: number }
 interface Project {
@@ -170,6 +170,8 @@ export default function ProjectsPage(): ReactElement {
   const toast  = useToast();
 
   const [projects, setProjects]         = useState<Project[]>([]);
+  const [invitations, setInvitations]   = useState<ProjectInvitation[]>([]);
+  const [respondingId, setRespondingId] = useState<string | null>(null);
   const [loading, setLoading]           = useState(true);
   const [showModal, setShowModal]       = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
@@ -192,6 +194,13 @@ export default function ProjectsPage(): ReactElement {
       );
     } catch (err) {
       console.error(err);
+    }
+
+    try {
+      const invData = await projectsApi.getInvitations();
+      setInvitations(invData.invitations || []);
+    } catch (err) {
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -201,28 +210,60 @@ export default function ProjectsPage(): ReactElement {
     let active = true;
     if (!user) return;
 
-    projectsApi
-      .list()
-      .then(({ projects: raw }) => {
-        if (!active) return;
-        setProjects(
-          raw.map((p) => ({
-            ...p,
-            status: p.status ?? 'active',
-            myRole: (p.myRole ?? 'member') as 'admin' | 'member',
-            taskStats: p.taskStats ?? { total: 0, done: 0 },
-          }))
-        );
-      })
-      .catch(console.error)
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    Promise.all([
+      projectsApi.list().catch((err) => {
+        console.error(err);
+        return { projects: [] };
+      }),
+      projectsApi.getInvitations().catch((err) => {
+        console.error(err);
+        return { invitations: [] };
+      }),
+    ]).then(([projData, invData]) => {
+      if (!active) return;
+      setProjects(
+        (projData.projects || []).map((p) => ({
+          ...p,
+          status: p.status ?? 'active',
+          myRole: (p.myRole ?? 'member') as 'admin' | 'member',
+          taskStats: p.taskStats ?? { total: 0, done: 0 },
+        }))
+      );
+      setInvitations(invData.invitations || []);
+      setLoading(false);
+    });
 
     return () => {
       active = false;
     };
   }, [user]);
+
+  const handleAcceptInvite = async (invId: string) => {
+    setRespondingId(invId);
+    try {
+      await projectsApi.acceptInvitation(invId);
+      toast('Invitation accepted! You have joined the project.', 'success');
+      setInvitations((prev) => prev.filter((i) => i._id !== invId));
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to accept invitation', 'error');
+    } finally {
+      setRespondingId(null);
+    }
+  };
+
+  const handleDeclineInvite = async (invId: string) => {
+    setRespondingId(invId);
+    try {
+      await projectsApi.declineInvitation(invId);
+      toast('Invitation declined', 'success');
+      setInvitations((prev) => prev.filter((i) => i._id !== invId));
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to decline invitation', 'error');
+    } finally {
+      setRespondingId(null);
+    }
+  };
 
   const create = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -317,6 +358,122 @@ export default function ProjectsPage(): ReactElement {
               <Plus size={16} /> New Project
             </button>
           </div>
+
+          {/* ── Pending Project Invitations Banner ── */}
+          {invitations.length > 0 && (
+            <div
+              style={{
+                background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(168, 85, 247, 0.08))',
+                border: '1px solid rgba(99, 102, 241, 0.25)',
+                borderRadius: 14,
+                padding: '18px 22px',
+                marginBottom: 28,
+                boxShadow: '0 8px 32px -8px rgba(99, 102, 241, 0.2)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(99, 102, 241, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a5b4fc' }}>
+                  <UserPlus size={16} />
+                </div>
+                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#e0e7ff', fontFamily: 'Outfit, sans-serif' }}>
+                  Pending Project Invitations ({invitations.length})
+                </h3>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {invitations.map((inv) => {
+                  const projName = typeof inv.project === 'object' && inv.project ? inv.project.name : 'Project';
+                  const projColor = (typeof inv.project === 'object' && inv.project && inv.project.color) || '#6366f1';
+                  const inviterName = typeof inv.invitedBy === 'object' && inv.invitedBy ? inv.invitedBy.name : 'A team member';
+                  const isActing = respondingId === inv._id;
+
+                  return (
+                    <div
+                      key={inv._id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        background: 'rgba(15, 23, 42, 0.6)',
+                        border: '1px solid rgba(255, 255, 255, 0.06)',
+                        borderRadius: 10,
+                        padding: '12px 16px',
+                        flexWrap: 'wrap',
+                        gap: 12,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div
+                          style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: '50%',
+                            background: projColor,
+                            boxShadow: `0 0 8px ${projColor}`,
+                          }}
+                        />
+                        <div>
+                          <p style={{ margin: 0, fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
+                            {projName}
+                            <span style={{ fontSize: 11, marginLeft: 8, padding: '2px 8px', borderRadius: 999, background: 'rgba(255, 255, 255, 0.08)', color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
+                              Role: {inv.role}
+                            </span>
+                          </p>
+                          <p style={{ margin: '2px 0 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+                            Invited by <strong style={{ color: 'var(--text-primary)' }}>{inviterName}</strong>
+                          </p>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <button
+                          onClick={() => handleAcceptInvite(inv._id)}
+                          disabled={isActing}
+                          style={{
+                            padding: '7px 14px',
+                            borderRadius: 8,
+                            background: 'linear-gradient(135deg, #10b981, #059669)',
+                            color: '#fff',
+                            border: 'none',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: isActing ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            opacity: isActing ? 0.6 : 1,
+                            transition: 'all 0.2s',
+                          }}
+                        >
+                          <Check size={14} /> Accept & Join
+                        </button>
+                        <button
+                          onClick={() => handleDeclineInvite(inv._id)}
+                          disabled={isActing}
+                          style={{
+                            padding: '7px 12px',
+                            borderRadius: 8,
+                            background: 'rgba(239, 68, 68, 0.1)',
+                            color: '#f87171',
+                            border: '1px solid rgba(239, 68, 68, 0.25)',
+                            fontSize: 12,
+                            fontWeight: 500,
+                            cursor: isActing ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            opacity: isActing ? 0.6 : 1,
+                            transition: 'all 0.2s',
+                          }}
+                        >
+                          <X size={14} /> Decline
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* ── Status Lifecycle Tabs ── */}
           <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 32 }}>

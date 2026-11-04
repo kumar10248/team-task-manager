@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { X, Bell, AtSign, CheckCircle2, MessageSquare, Plus } from 'lucide-react';
-import { notificationsApi, Notification } from '../lib/api';
+import { X, Bell, AtSign, CheckCircle2, MessageSquare, Plus, UserPlus } from 'lucide-react';
+import { notificationsApi, projectsApi, Notification } from '../lib/api';
+import { useToast } from './Toast';
 
 interface NotificationsPanelProps {
   isOpen: boolean;
@@ -9,8 +10,10 @@ interface NotificationsPanelProps {
 }
 
 export default function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps) {
+  const toast = useToast();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
+  const [handledInvites, setHandledInvites] = useState<Record<string, 'accepted' | 'declined'>>({});
 
   useEffect(() => {
     if (isOpen) {
@@ -50,6 +53,28 @@ export default function NotificationsPanel({ isOpen, onClose }: NotificationsPan
       } catch {}
     }
     // Ideally, navigate to the task here if n.task is present
+  };
+
+  const handleAcceptInvite = async (invitationId: string, notifId: string) => {
+    try {
+      const res = await projectsApi.acceptInvitation(invitationId);
+      toast(res.message || 'Invitation accepted! You are now a member.', 'success');
+      setHandledInvites(prev => ({ ...prev, [invitationId]: 'accepted' }));
+      setNotifications(prev => prev.map(n => n._id === notifId ? { ...n, isRead: true } : n));
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to accept invitation', 'error');
+    }
+  };
+
+  const handleDeclineInvite = async (invitationId: string, notifId: string) => {
+    try {
+      await projectsApi.declineInvitation(invitationId);
+      toast('Invitation declined', 'success');
+      setHandledInvites(prev => ({ ...prev, [invitationId]: 'declined' }));
+      setNotifications(prev => prev.map(n => n._id === notifId ? { ...n, isRead: true } : n));
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to decline invitation', 'error');
+    }
   };
 
   if (!isOpen) return null;
@@ -126,6 +151,10 @@ export default function NotificationsPanel({ isOpen, onClose }: NotificationsPan
               if (n.type === 'assignment') { Icon = Plus; color = 'var(--amber)'; }
               if (n.type === 'status') { Icon = CheckCircle2; color = '#4ade80'; }
               if (n.type === 'comment') { Icon = MessageSquare; color = 'var(--text-muted)'; }
+              if (n.type === 'invitation') { Icon = UserPlus; color = '#c084fc'; }
+
+              const invId = typeof n.invitation === 'object' && n.invitation ? n.invitation._id : (typeof n.invitation === 'string' ? n.invitation : null);
+              const inviteStatus = invId ? handledInvites[invId] : null;
 
               return (
                 <div 
@@ -152,6 +181,61 @@ export default function NotificationsPanel({ isOpen, onClose }: NotificationsPan
                     <div style={{ fontSize: 14, fontFamily: 'Outfit, sans-serif', color: !n.isRead ? 'var(--text-primary)' : 'var(--text-secondary)', lineHeight: 1.4 }}>
                       <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{userName}</span> {n.text}
                     </div>
+
+                    {n.type === 'invitation' && invId && (
+                      <div style={{ marginTop: 10 }}>
+                        {inviteStatus === 'accepted' ? (
+                          <span style={{ fontSize: 12, color: '#4ade80', fontWeight: 500, fontFamily: 'Outfit, sans-serif' }}>
+                            ✓ Joined project
+                          </span>
+                        ) : inviteStatus === 'declined' ? (
+                          <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
+                            Invitation declined
+                          </span>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAcceptInvite(invId, n._id);
+                              }}
+                              style={{
+                                padding: '4px 12px',
+                                fontSize: 12,
+                                background: 'rgba(74, 222, 128, 0.15)',
+                                color: '#4ade80',
+                                border: '1px solid rgba(74, 222, 128, 0.3)',
+                                borderRadius: 6,
+                                cursor: 'pointer',
+                                fontWeight: 500,
+                              }}
+                            >
+                              Accept & Join
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeclineInvite(invId, n._id);
+                              }}
+                              style={{
+                                padding: '4px 10px',
+                                fontSize: 12,
+                                background: 'rgba(255, 255, 255, 0.04)',
+                                color: 'var(--text-muted)',
+                                border: '1px solid rgba(255, 255, 255, 0.08)',
+                                borderRadius: 6,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Decline
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                       {new Date(n.createdAt).toLocaleDateString()}
                       {!n.isRead && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent-primary)', boxShadow: '0 0 10px var(--accent-primary)' }} />}

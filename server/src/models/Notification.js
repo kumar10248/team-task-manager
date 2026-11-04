@@ -14,7 +14,7 @@ const notificationSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['mention', 'assignment', 'status', 'comment', 'system'],
+      enum: ['mention', 'assignment', 'status', 'comment', 'system', 'invitation'],
       required: true,
     },
     project: {
@@ -25,6 +25,11 @@ const notificationSchema = new mongoose.Schema(
     task: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Task',
+      default: null,
+    },
+    invitation: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ProjectInvitation',
       default: null,
     },
     text: {

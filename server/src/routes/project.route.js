@@ -15,6 +15,11 @@ router.route('/')
 // Fast single-query user tasks
 router.get('/my-tasks', task.getMyTasks);
 
+// Invitations for current user
+router.get('/invitations', project.getMyInvitations);
+router.post('/invitations/:id/accept', project.acceptInvitation);
+router.post('/invitations/:id/decline', project.declineInvitation);
+
 router.route('/:id')
   .get(project.getProject)
   .patch(project.updateProject)

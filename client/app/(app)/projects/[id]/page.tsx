@@ -1713,8 +1713,12 @@ export default function ProjectDetailPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      await projectsApi.addMember(id, memberForm);
-      toast('Member added');
+      const res = await projectsApi.addMember(id, memberForm);
+      if (res.requiresApproval) {
+        toast(res.message || 'Invitation request sent! They will be added once they accept.', 'success');
+      } else {
+        toast('Member added successfully', 'success');
+      }
       setShowMemberModal(false);
       setMemberForm({ email: '', role: 'member' });
       await load();

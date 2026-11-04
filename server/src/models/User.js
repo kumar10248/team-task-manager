@@ -48,6 +48,11 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    projectAddPrivacy: {
+      type: String,
+      enum: ['anyone', 'nobody', 'request'],
+      default: 'anyone',
+    },
   },
   {
     timestamps: true,
@@ -85,6 +90,7 @@ userSchema.methods.toPublicJSON = function () {
     isClockedIn: this.isClockedIn,
     lastClockIn: this.lastClockIn,
     lastClockOut: this.lastClockOut,
+    projectAddPrivacy: this.projectAddPrivacy || 'anyone',
     createdAt: this.createdAt,
   };
 };

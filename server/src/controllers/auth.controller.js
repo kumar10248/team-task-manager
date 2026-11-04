@@ -171,11 +171,15 @@ exports.getMe = async (req, res) => {
  */
 exports.updateMe = async (req, res) => {
   try {
-    const allowed = ['name', 'avatar'];
+    const allowed = ['name', 'avatar', 'projectAddPrivacy'];
     const updates = {};
     allowed.forEach((field) => {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
     });
+
+    if (updates.projectAddPrivacy && !['anyone', 'nobody', 'request'].includes(updates.projectAddPrivacy)) {
+      return res.status(400).json({ success: false, message: 'Invalid privacy setting. Must be "anyone", "nobody", or "request"' });
+    }
 
     const user = await User.findByIdAndUpdate(req.user._id, updates, {
       new: true,
