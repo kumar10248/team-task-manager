@@ -15,7 +15,7 @@ import {
   Plus, ArrowLeft, Trash2, UserPlus, Pencil,
   MessageSquare, CornerDownLeft, GripVertical,
   Search, X, User, CheckSquare, Download, ExternalLink, Clock,
-  Video, Calendar, Copy, Check
+  Video, Calendar, Copy, Check, ChevronDown, ChevronUp
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -80,10 +80,13 @@ interface TaskCardProps {
   onEdit: (task: Task) => void;
   onDelete: (task: Task) => void;
   onOpenComments: (task: Task) => void;
+  onUpdateChecklist?: (taskId: string, checklist: ChecklistItem[]) => void;
 }
 
-function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelete, onOpenComments }: TaskCardProps) {
+function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelete, onOpenComments, onUpdateChecklist }: TaskCardProps) {
   const [isDragging, setIsDragging] = useState(false);
+  const [showChecklist, setShowChecklist] = useState(false);
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const isOverdue = !!task.dueDate && task.status !== 'done' && new Date() > new Date(task.dueDate);
   const pColor = PRIORITY_COLORS[task.priority] || 'var(--accent-primary)';
   const isAssignedToMe = currentUserId ? task.assignedTo?._id === currentUserId : true;
@@ -136,7 +139,13 @@ function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelet
               <GripVertical size={14} />
             </span>
           )}
-          <span style={{ fontSize: 14, fontFamily: 'Outfit, sans-serif', color: 'var(--text-primary)', fontWeight: 500, lineHeight: 1.4 }}>
+          <span
+            onClick={() => onOpenComments(task)}
+            style={{ fontSize: 14, fontFamily: 'Outfit, sans-serif', color: 'var(--text-primary)', fontWeight: 500, lineHeight: 1.4, cursor: 'pointer' }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--accent-primary)')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-primary)')}
+            title="Click to view details & subtasks"
+          >
             {task.title}
           </span>
         </div>
@@ -174,24 +183,132 @@ function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelet
         </p>
       )}
 
-      {/* Checklist / Subtasks progress */}
+      {/* Checklist / Subtasks progress & list */}
       {task.checklist && task.checklist.length > 0 && (
         (() => {
           const total = task.checklist.length;
           const doneCount = task.checklist.filter((item) => item.completed).length;
           const pct = Math.round((doneCount / total) * 100);
           return (
-            <div style={{ marginBottom: 12, padding: '7px 10px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.04)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5, fontSize: 11, fontFamily: 'Outfit, sans-serif' }}>
+            <div style={{ marginBottom: 12, padding: '8px 10px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.04)' }}>
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowChecklist((prev) => !prev);
+                }}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: showChecklist ? 8 : 5, fontSize: 11, fontFamily: 'Outfit, sans-serif', cursor: 'pointer', userSelect: 'none' }}
+                title="Click to expand/collapse subtasks"
+              >
                 <span style={{ color: doneCount === total ? '#4ade80' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 500 }}>
                   <CheckSquare size={12} color={doneCount === total ? '#4ade80' : 'var(--accent-primary)'} />
                   {doneCount}/{total} subtasks
                 </span>
-                <span style={{ color: 'var(--text-muted)' }}>{pct}%</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-muted)' }}>
+                  <span>{pct}%</span>
+                  {showChecklist ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                </span>
               </div>
               <div style={{ height: 3, background: 'rgba(255, 255, 255, 0.06)', borderRadius: 2, overflow: 'hidden' }}>
                 <div style={{ height: '100%', width: `${pct}%`, background: doneCount === total ? '#4ade80' : 'var(--accent-primary)', transition: 'width 0.3s' }} />
               </div>
+
+              {/* Expanded subtask items */}
+              {showChecklist && (
+                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 8, borderTop: '1px solid rgba(255, 255, 255, 0.04)' }}>
+                  {task.checklist.map((item, idx) => (
+                    <label
+                      key={item._id || idx}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        fontSize: 12,
+                        fontFamily: 'Outfit, sans-serif',
+                        color: item.completed ? 'var(--text-muted)' : 'var(--text-primary)',
+                        cursor: canUpdateStatus ? 'pointer' : 'default',
+                        textDecoration: item.completed ? 'line-through' : 'none',
+                        transition: 'color 0.2s',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={item.completed}
+                        disabled={!canUpdateStatus}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          if (!canUpdateStatus) return;
+                          const nextChecklist = task.checklist!.map((c, i) =>
+                            i === idx ? { ...c, completed: !c.completed } : c
+                          );
+                          onUpdateChecklist?.(task._id, nextChecklist);
+                        }}
+                        style={{
+                          width: 14,
+                          height: 14,
+                          cursor: canUpdateStatus ? 'pointer' : 'default',
+                          accentColor: 'var(--accent-primary)',
+                        }}
+                      />
+                      <span style={{ flex: 1, wordBreak: 'break-word', lineHeight: 1.3 }}>
+                        {item.title}
+                      </span>
+                    </label>
+                  ))}
+
+                  {/* Quick add subtask for assignee or admin */}
+                  {canUpdateStatus && (
+                    <div style={{ marginTop: 4, display: 'flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="text"
+                        placeholder="Add subtask…"
+                        value={newSubtaskTitle}
+                        onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const val = newSubtaskTitle.trim();
+                            if (!val) return;
+                            const nextChecklist = [...(task.checklist || []), { title: val, completed: false }];
+                            onUpdateChecklist?.(task._id, nextChecklist);
+                            setNewSubtaskTitle('');
+                          }
+                        }}
+                        style={{
+                          flex: 1,
+                          fontSize: 11,
+                          padding: '4px 8px',
+                          background: 'rgba(255,255,255,0.03)',
+                          border: '1px solid rgba(255,255,255,0.06)',
+                          borderRadius: 6,
+                          color: 'var(--text-primary)',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const val = newSubtaskTitle.trim();
+                          if (!val) return;
+                          const nextChecklist = [...(task.checklist || []), { title: val, completed: false }];
+                          onUpdateChecklist?.(task._id, nextChecklist);
+                          setNewSubtaskTitle('');
+                        }}
+                        style={{
+                          background: 'rgba(129, 140, 248, 0.15)',
+                          border: '1px solid rgba(129, 140, 248, 0.3)',
+                          borderRadius: 6,
+                          color: '#a5b4fc',
+                          fontSize: 11,
+                          padding: '0 8px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        +
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })()
@@ -243,6 +360,22 @@ function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelet
         </select>
 
         <div style={{ display: 'flex', gap: 6 }}>
+          {/* Subtasks button */}
+          <button
+            onClick={() => onOpenComments(task)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 6, transition: 'all 0.2s' }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
+            title="Subtasks & details"
+          >
+            <CheckSquare size={14} color={task.checklist && task.checklist.length > 0 ? 'var(--accent-primary)' : 'var(--text-muted)'} />
+            {task.checklist && task.checklist.length > 0 && (
+              <span style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif' }}>
+                {task.checklist.filter(c => c.completed).length}/{task.checklist.length}
+              </span>
+            )}
+          </button>
+
           {/* Comment count badge */}
           <button
             onClick={() => onOpenComments(task)}
@@ -298,6 +431,7 @@ interface KanbanColumnProps {
   onEdit: (task: Task) => void;
   onDelete: (task: Task) => void;
   onOpenComments: (task: Task) => void;
+  onUpdateChecklist?: (taskId: string, checklist: ChecklistItem[]) => void;
 }
 
 function KanbanColumn({
@@ -311,6 +445,7 @@ function KanbanColumn({
   onEdit,
   onDelete,
   onOpenComments,
+  onUpdateChecklist,
 }: KanbanColumnProps) {
   const [isOver, setIsOver] = useState(false);
 
@@ -382,6 +517,7 @@ function KanbanColumn({
             onEdit={onEdit}
             onDelete={onDelete}
             onOpenComments={onOpenComments}
+            onUpdateChecklist={onUpdateChecklist}
           />
         ))}
 
@@ -420,6 +556,7 @@ interface CommentsPanelProps {
   members?: ProjectMember[];
   onClose: () => void;
   onCommentsUpdate?: (taskId: string, comments: Comment[]) => void;
+  onChecklistUpdate?: (taskId: string, checklist: ChecklistItem[]) => void;
 }
 
 const QUICK_REACTIONS = [
@@ -430,10 +567,12 @@ const QUICK_REACTIONS = [
   { label: '🎉 Great job', text: '🎉 Awesome job on this!' },
 ];
 
-function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], onClose, onCommentsUpdate }: CommentsPanelProps) {
+function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], onClose, onCommentsUpdate, onChecklistUpdate }: CommentsPanelProps) {
   const { user } = useAuth();
   const toast = useToast();
   const [comments, setComments] = useState<Comment[]>(task.comments || []);
+  const [taskChecklist, setTaskChecklist] = useState<ChecklistItem[]>(task.checklist || []);
+  const [newChecklistText, setNewChecklistText] = useState('');
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -441,22 +580,77 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const commentsEndRef = useRef<HTMLDivElement>(null);
 
-  // Fetch freshly populated task comments on open
+  const isAssignedToMe = currentUserId
+    ? (typeof task.assignedTo === 'object' && task.assignedTo ? task.assignedTo._id === currentUserId : task.assignedTo === currentUserId)
+    : true;
+  const canManageChecklist = myRole === 'admin' || isAssignedToMe;
+
+  // Fetch freshly populated task comments and checklist on open
   useEffect(() => {
     let active = true;
     tasksApi
       .get(projectId, task._id)
       .then((res) => {
-        if (!active || !res?.task?.comments) return;
-        setComments(res.task.comments);
-        if (onCommentsUpdate) onCommentsUpdate(task._id, res.task.comments);
+        if (!active) return;
+        if (res?.task?.comments) {
+          setComments(res.task.comments);
+          if (onCommentsUpdate) onCommentsUpdate(task._id, res.task.comments);
+        }
+        if (res?.task?.checklist) {
+          setTaskChecklist(res.task.checklist);
+          if (onChecklistUpdate) onChecklistUpdate(task._id, res.task.checklist);
+        }
       })
       .catch(console.error);
 
     return () => {
       active = false;
     };
-  }, [projectId, task._id, onCommentsUpdate]);
+  }, [projectId, task._id, onCommentsUpdate, onChecklistUpdate]);
+
+  const handleToggleChecklist = async (idx: number) => {
+    const updated = taskChecklist.map((item, i) =>
+      i === idx ? { ...item, completed: !item.completed } : item
+    );
+    setTaskChecklist(updated);
+    if (onChecklistUpdate) onChecklistUpdate(task._id, updated);
+    try {
+      await tasksApi.update(projectId, task._id, { checklist: updated });
+      const completedCount = updated.filter((c) => c.completed).length;
+      if (completedCount === updated.length && updated.length > 0) {
+        toast('All subtasks completed! 🎉', 'success');
+      }
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to update subtask', 'error');
+    }
+  };
+
+  const handleAddChecklist = async () => {
+    const trimmed = newChecklistText.trim();
+    if (!trimmed) return;
+    const updated = [...taskChecklist, { title: trimmed, completed: false }];
+    setTaskChecklist(updated);
+    setNewChecklistText('');
+    if (onChecklistUpdate) onChecklistUpdate(task._id, updated);
+    try {
+      await tasksApi.update(projectId, task._id, { checklist: updated });
+      toast('Subtask added', 'success');
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to add subtask', 'error');
+    }
+  };
+
+  const handleRemoveChecklist = async (idx: number) => {
+    const updated = taskChecklist.filter((_, i) => i !== idx);
+    setTaskChecklist(updated);
+    if (onChecklistUpdate) onChecklistUpdate(task._id, updated);
+    try {
+      await tasksApi.update(projectId, task._id, { checklist: updated });
+      toast('Subtask removed', 'success');
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to remove subtask', 'error');
+    }
+  };
 
   const scrollToBottom = () => {
     commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -615,20 +809,151 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
   };
 
   return (
-    <Modal title={`Discussion — ${task.title}`} onClose={onClose} width={560}>
+    <Modal title={`Task Details & Discussion — ${task.title}`} onClose={onClose} width={580}>
       {/* Task preview header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 16, marginBottom: 16, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 14, marginBottom: 14, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
         <span className={`badge badge-${task.priority}`}>{task.priority}</span>
         <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'Outfit, sans-serif' }}>
-          {task.status === 'done' ? 'Completed task' : 'Active task'}
+          {task.status === 'done' ? 'Completed task' : (task.status === 'in_progress' ? 'In Progress' : 'To Do')}
         </span>
+        {task.assignedTo && (
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif', marginLeft: 6 }}>
+            • Assigned to {task.assignedTo.name}
+          </span>
+        )}
         <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
           {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
         </span>
       </div>
 
+      {/* Task description if present */}
+      {task.description && (
+        <div style={{ marginBottom: 16, padding: '10px 14px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: 10, border: '1px solid rgba(255, 255, 255, 0.04)' }}>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'Outfit, sans-serif', lineHeight: 1.5, margin: 0 }}>
+            {task.description}
+          </p>
+        </div>
+      )}
+
+      {/* Subtasks Checklist Section */}
+      <div style={{ marginBottom: 20, padding: 14, background: 'rgba(255, 255, 255, 0.025)', borderRadius: 12, border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <span style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <CheckSquare size={14} color="var(--accent-primary)" />
+            Subtask Checklist {taskChecklist.length > 0 && `(${taskChecklist.filter(c => c.completed).length}/${taskChecklist.length})`}
+          </span>
+          {taskChecklist.length > 0 && (
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
+              {Math.round((taskChecklist.filter(c => c.completed).length / taskChecklist.length) * 100)}% done
+            </span>
+          )}
+        </div>
+
+        {/* Progress bar */}
+        {taskChecklist.length > 0 && (
+          <div style={{ height: 4, background: 'rgba(255, 255, 255, 0.06)', borderRadius: 2, overflow: 'hidden', marginBottom: 12 }}>
+            <div
+              style={{
+                height: '100%',
+                width: `${Math.round((taskChecklist.filter(c => c.completed).length / taskChecklist.length) * 100)}%`,
+                background: taskChecklist.every(c => c.completed) ? '#4ade80' : 'var(--accent-primary)',
+                transition: 'width 0.3s ease',
+              }}
+            />
+          </div>
+        )}
+
+        {/* Existing subtasks */}
+        {taskChecklist.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: canManageChecklist ? 10 : 0 }}>
+            {taskChecklist.map((item, idx) => (
+              <div
+                key={item._id || idx}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '7px 10px',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  borderRadius: 8,
+                  border: '1px solid rgba(255, 255, 255, 0.04)',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={item.completed}
+                  disabled={!canManageChecklist}
+                  onChange={() => handleToggleChecklist(idx)}
+                  style={{ width: 16, height: 16, cursor: canManageChecklist ? 'pointer' : 'default', accentColor: 'var(--accent-primary)' }}
+                />
+                <span
+                  style={{
+                    flex: 1,
+                    fontSize: 13,
+                    fontFamily: 'Outfit, sans-serif',
+                    color: item.completed ? 'var(--text-muted)' : 'var(--text-primary)',
+                    textDecoration: item.completed ? 'line-through' : 'none',
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {item.title}
+                </span>
+                {canManageChecklist && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveChecklist(idx)}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, display: 'flex' }}
+                    title="Remove subtask"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif', marginBottom: canManageChecklist ? 10 : 0 }}>
+            No subtasks yet. {canManageChecklist ? 'Add your first subtask checklist item below:' : ''}
+          </p>
+        )}
+
+        {/* Add subtask input */}
+        {canManageChecklist && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              type="text"
+              placeholder="Add subtask checklist item…"
+              value={newChecklistText}
+              onChange={(e) => setNewChecklistText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleAddChecklist();
+                }
+              }}
+              style={{ flex: 1, fontSize: 12, padding: '7px 10px' }}
+            />
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={handleAddChecklist}
+              style={{ padding: '0 12px', fontSize: 12 }}
+            >
+              + Add
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, paddingTop: 4 }}>
+        <span style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <MessageSquare size={14} color="var(--accent-primary)" />
+          Discussion
+        </span>
+      </div>
+
       {/* Comment list */}
-      <div style={{ maxHeight: 380, overflowY: 'auto', marginBottom: 20, paddingRight: 6, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ maxHeight: 300, overflowY: 'auto', marginBottom: 20, paddingRight: 6, display: 'flex', flexDirection: 'column', gap: 16 }}>
         {comments.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '48px 16px', background: 'rgba(255,255,255,0.015)', borderRadius: 12, border: '1px dashed var(--bg-border)' }}>
             <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(129, 140, 248, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
@@ -1353,6 +1678,22 @@ export default function ProjectDetailPage() {
     }
   };
 
+  const handleChecklistUpdate = async (taskId: string, newChecklist: ChecklistItem[]) => {
+    // Optimistic update
+    setTasks((prev) =>
+      prev.map((t) => (t._id === taskId ? { ...t, checklist: newChecklist } : t))
+    );
+    if (commentTask && commentTask._id === taskId) {
+      setCommentTask((prev) => prev ? { ...prev, checklist: newChecklist } : null);
+    }
+    try {
+      await tasksApi.update(id, taskId, { checklist: newChecklist });
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to update subtasks', 'error');
+      load(true);
+    }
+  };
+
   const confirmDeleteTask = async () => {
     if (!deleteTaskTarget) return;
     const targetId = deleteTaskTarget._id;
@@ -1456,8 +1797,22 @@ export default function ProjectDetailPage() {
           </div>
         ) : (
           <div>
-            <FieldLabel>Due Date</FieldLabel>
-            <input type="date" value={taskForm.dueDate} onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value })} />
+            <FieldLabel>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Calendar size={13} color="var(--accent-primary)" /> Due Date
+              </span>
+            </FieldLabel>
+            <input
+              type="date"
+              value={taskForm.dueDate}
+              onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value })}
+              onClick={(e) => {
+                try {
+                  e.currentTarget.showPicker?.();
+                } catch {}
+              }}
+              style={{ colorScheme: 'dark', cursor: 'pointer' }}
+            />
           </div>
         )}
       </div>
@@ -1465,8 +1820,22 @@ export default function ProjectDetailPage() {
       {/* Due date when editing (3rd row) */}
       {editingTask && (
         <div style={{ marginBottom: 20 }}>
-          <FieldLabel>Due Date</FieldLabel>
-          <input type="date" value={taskForm.dueDate} onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value })} />
+          <FieldLabel>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Calendar size={13} color="var(--accent-primary)" /> Due Date
+            </span>
+          </FieldLabel>
+          <input
+            type="date"
+            value={taskForm.dueDate}
+            onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value })}
+            onClick={(e) => {
+              try {
+                e.currentTarget.showPicker?.();
+              } catch {}
+            }}
+            style={{ colorScheme: 'dark', cursor: 'pointer' }}
+          />
         </div>
       )}
 
@@ -1905,6 +2274,7 @@ export default function ProjectDetailPage() {
                   onEdit={openEditTask}
                   onDelete={setDeleteTaskTarget}
                   onOpenComments={setCommentTask}
+                  onUpdateChecklist={handleChecklistUpdate}
                 />
               ))}
             </div>
@@ -1916,7 +2286,7 @@ export default function ProjectDetailPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    {['Task', 'Status', 'Priority', 'Assignee', 'Due Date', 'Comments', ''].map((h, i) => (
+                    {['Task', 'Subtasks', 'Status', 'Priority', 'Assignee', 'Due Date', 'Discussion', ''].map((h, i) => (
                       <th key={h || `actions-${i}`} style={{ padding: '16px 20px', textAlign: 'left', fontSize: 12, fontFamily: 'Outfit, sans-serif', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>{h}</th>
                     ))}
                   </tr>
@@ -1924,7 +2294,7 @@ export default function ProjectDetailPage() {
                 <tbody>
                   {filteredTasks.length === 0 ? (
                     <tr>
-                      <td colSpan={7} style={{ padding: '60px', textAlign: 'center', fontSize: 14, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)' }}>
+                      <td colSpan={8} style={{ padding: '60px', textAlign: 'center', fontSize: 14, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)' }}>
                         {isFiltering ? (
                           <span>
                             No tasks match your filters.{' '}
@@ -1949,7 +2319,51 @@ export default function ProjectDetailPage() {
                       <tr key={t._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)', transition: 'background 0.2s' }}
                         onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
                         onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
-                        <td style={{ padding: '16px 20px', fontSize: 14, fontFamily: 'Outfit, sans-serif', fontWeight: 500, color: 'var(--text-primary)', maxWidth: 300 }}>{t.title}</td>
+                        <td style={{ padding: '16px 20px', fontSize: 14, fontFamily: 'Outfit, sans-serif', fontWeight: 500, color: 'var(--text-primary)', maxWidth: 300 }}>
+                          <span
+                            onClick={() => setCommentTask(t)}
+                            style={{ cursor: 'pointer', transition: 'color 0.2s' }}
+                            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--accent-primary)')}
+                            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-primary)')}
+                            title="Click to view details & subtasks"
+                          >
+                            {t.title}
+                          </span>
+                        </td>
+                        <td style={{ padding: '16px 20px' }}>
+                          {t.checklist && t.checklist.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => setCommentTask(t)}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                background: t.checklist.every((c) => c.completed) ? 'rgba(74, 222, 128, 0.1)' : 'rgba(255, 255, 255, 0.03)',
+                                border: t.checklist.every((c) => c.completed) ? '1px solid rgba(74, 222, 128, 0.25)' : '1px solid rgba(255, 255, 255, 0.06)',
+                                color: t.checklist.every((c) => c.completed) ? '#4ade80' : 'var(--text-secondary)',
+                                padding: '4px 8px',
+                                borderRadius: 8,
+                                fontSize: 12,
+                                fontFamily: 'Outfit, sans-serif',
+                                cursor: 'pointer',
+                              }}
+                              title="View and check off subtasks"
+                            >
+                              <CheckSquare size={13} color={t.checklist.every((c) => c.completed) ? '#4ade80' : 'var(--accent-primary)'} />
+                              <span>{t.checklist.filter((c) => c.completed).length}/{t.checklist.length}</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setCommentTask(t)}
+                              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                              title="Add subtask"
+                            >
+                              <Plus size={11} /> Add
+                            </button>
+                          )}
+                        </td>
                         <td style={{ padding: '16px 20px' }}>
                           <select
                             value={t.status}
@@ -2256,6 +2670,7 @@ export default function ProjectDetailPage() {
               prev.map((t) => (t._id === taskId ? { ...t, comments: newComments } : t))
             );
           }}
+          onChecklistUpdate={handleChecklistUpdate}
         />
       )}
 
@@ -2345,17 +2760,31 @@ export default function ProjectDetailPage() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 14, marginBottom: 18 }}>
               <div>
-                <FieldLabel>Start Date & Time *</FieldLabel>
+                <FieldLabel>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <Calendar size={13} color="var(--accent-primary)" /> Start Date & Time *
+                  </span>
+                </FieldLabel>
                 <input
                   type="datetime-local"
                   required
                   value={meetingStartTime}
                   onChange={(e) => setMeetingStartTime(e.target.value)}
+                  onClick={(e) => {
+                    try {
+                      e.currentTarget.showPicker?.();
+                    } catch {}
+                  }}
+                  style={{ colorScheme: 'dark', cursor: 'pointer' }}
                 />
               </div>
 
               <div>
-                <FieldLabel>Duration</FieldLabel>
+                <FieldLabel>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <Clock size={13} color="var(--accent-primary)" /> Duration
+                  </span>
+                </FieldLabel>
                 <select
                   value={meetingDuration}
                   onChange={(e) => setMeetingDuration(Number(e.target.value))}

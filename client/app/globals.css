@@ -5,6 +5,7 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: dark;
   /* Deep, rich dark mode background */
   --bg-base: #030305;
   --bg-surface: rgba(15, 15, 20, 0.4);
@@ -29,6 +30,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body { 
+  color-scheme: dark;
   background: var(--bg-base); 
   color: var(--text-primary); 
   font-family: 'Outfit', sans-serif; 
@@ -89,6 +91,7 @@ body::before {
 
 /* Inputs */
 input, textarea, select {
+  color-scheme: dark;
   background: rgba(255,255,255,0.03); 
   border: 1px solid var(--bg-border); 
   color: var(--text-primary);
@@ -106,6 +109,32 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 0 0 4px var(--accent-glow); 
 }
 input::placeholder, textarea::placeholder { color: var(--text-muted); }
+
+/* Ensure Date, Time & Datetime-local inputs show crisp, visible icons in dark mode */
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"] {
+  color-scheme: dark;
+  cursor: pointer;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.9;
+  padding: 4px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
+input[type="time"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  background: rgba(129, 140, 248, 0.2);
+  transform: scale(1.08);
+}
 
 /* Fix native select options contrast */
 option {

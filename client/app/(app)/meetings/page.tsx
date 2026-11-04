@@ -1267,7 +1267,9 @@ function MeetingsContent() {
               <div>
                 <label
                   style={{
-                    display: 'block',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
                     fontSize: 12,
                     fontFamily: 'Outfit, sans-serif',
                     letterSpacing: '0.06em',
@@ -1277,6 +1279,7 @@ function MeetingsContent() {
                     fontWeight: 500,
                   }}
                 >
+                  <Calendar size={13} color="var(--accent-primary)" />
                   Start Date & Time *
                 </label>
                 <input
@@ -1284,13 +1287,21 @@ function MeetingsContent() {
                   required
                   value={formStartTime}
                   onChange={(e) => setFormStartTime(e.target.value)}
+                  onClick={(e) => {
+                    try {
+                      e.currentTarget.showPicker?.();
+                    } catch {}
+                  }}
+                  style={{ colorScheme: 'dark', cursor: 'pointer' }}
                 />
               </div>
 
               <div>
                 <label
                   style={{
-                    display: 'block',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
                     fontSize: 12,
                     fontFamily: 'Outfit, sans-serif',
                     letterSpacing: '0.06em',
@@ -1300,6 +1311,7 @@ function MeetingsContent() {
                     fontWeight: 500,
                   }}
                 >
+                  <Clock size={13} color="var(--accent-primary)" />
                   Duration
                 </label>
                 <select

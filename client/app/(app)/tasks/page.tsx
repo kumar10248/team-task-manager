@@ -1,12 +1,12 @@
 'use client';
-import { useEffect, useState, ReactElement } from 'react';
+import React, { useEffect, useState, ReactElement } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { tasksApi } from '@/lib/api';
+import { tasksApi, ChecklistItem } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import { TasksTableSkeleton } from '@/components/Skeletons';
-import { CheckSquare, Filter } from 'lucide-react';
+import { CheckSquare, Filter, ChevronDown, ChevronUp, Plus, X } from 'lucide-react';
 
 /* ================= TYPES ================= */
 
@@ -31,6 +31,7 @@ interface Task {
   projectName: string;
   projectId: string;
   myRole: string;
+  checklist?: ChecklistItem[];
 }
 
 interface TaskFilter {
@@ -58,9 +59,11 @@ export default function MyTasksPage(): ReactElement {
   const router = useRouter();
   const toast  = useToast();
 
-  const [allTasks, setAllTasks] = useState<Task[]>([]);
-  const [loading, setLoading]   = useState<boolean>(true);
-  const [filter, setFilter]     = useState<TaskFilter>({ status: '', priority: '' });
+  const [allTasks, setAllTasks]                 = useState<Task[]>([]);
+  const [loading, setLoading]                   = useState<boolean>(true);
+  const [filter, setFilter]                     = useState<TaskFilter>({ status: '', priority: '' });
+  const [expandedTasks, setExpandedTasks]       = useState<Record<string, boolean>>({});
+  const [newSubtaskInputs, setNewSubtaskInputs] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!authLoading && !user) router.push('/login');
@@ -98,6 +101,78 @@ export default function MyTasksPage(): ReactElement {
     }
   };
 
+  const toggleExpanded = (taskId: string) => {
+    setExpandedTasks((prev) => ({ ...prev, [taskId]: !prev[taskId] }));
+  };
+
+  const toggleChecklistItem = async (task: Task, itemIdx: number) => {
+    const currentList = task.checklist || [];
+    const nextList = currentList.map((item, idx) =>
+      idx === itemIdx ? { ...item, completed: !item.completed } : item
+    );
+
+    // Optimistic UI update
+    setAllTasks((prev) =>
+      prev.map((t) => (t._id === task._id ? { ...t, checklist: nextList } : t))
+    );
+
+    try {
+      await tasksApi.update(task.projectId, task._id, { checklist: nextList });
+      const completedCount = nextList.filter((c) => c.completed).length;
+      if (completedCount === nextList.length && nextList.length > 0) {
+        toast(`All subtasks finished for "${task.title}"! 🎉`, 'success');
+      }
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to update subtask', 'error');
+      // Rollback
+      setAllTasks((prev) =>
+        prev.map((t) => (t._id === task._id ? { ...t, checklist: currentList } : t))
+      );
+    }
+  };
+
+  const addSubtaskItem = async (task: Task) => {
+    const text = (newSubtaskInputs[task._id] || '').trim();
+    if (!text) return;
+
+    const currentList = task.checklist || [];
+    const nextList = [...currentList, { title: text, completed: false }];
+
+    setAllTasks((prev) =>
+      prev.map((t) => (t._id === task._id ? { ...t, checklist: nextList } : t))
+    );
+    setNewSubtaskInputs((prev) => ({ ...prev, [task._id]: '' }));
+
+    try {
+      await tasksApi.update(task.projectId, task._id, { checklist: nextList });
+      toast('Subtask added', 'success');
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to add subtask', 'error');
+      setAllTasks((prev) =>
+        prev.map((t) => (t._id === task._id ? { ...t, checklist: currentList } : t))
+      );
+    }
+  };
+
+  const removeSubtaskItem = async (task: Task, itemIdx: number) => {
+    const currentList = task.checklist || [];
+    const nextList = currentList.filter((_, idx) => idx !== itemIdx);
+
+    setAllTasks((prev) =>
+      prev.map((t) => (t._id === task._id ? { ...t, checklist: nextList } : t))
+    );
+
+    try {
+      await tasksApi.update(task.projectId, task._id, { checklist: nextList });
+      toast('Subtask removed', 'success');
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to remove subtask', 'error');
+      setAllTasks((prev) =>
+        prev.map((t) => (t._id === task._id ? { ...t, checklist: currentList } : t))
+      );
+    }
+  };
+
   const filtered = allTasks.filter((t) => {
     if (filter.status   && t.status   !== filter.status)   return false;
     if (filter.priority && t.priority !== filter.priority) return false;
@@ -126,54 +201,54 @@ export default function MyTasksPage(): ReactElement {
 
         <div className="animate-fade-in">
           {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 40 }}>
-              <div>
-                <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: 13, fontWeight: 500, color: 'var(--accent-secondary)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
-                  Personal
-                </p>
-                <h1 style={{ fontFamily: 'Fraunces, serif', fontSize: 36, fontWeight: 400, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
-                  My Tasks
-                </h1>
-              </div>
-              <div style={{ display: 'flex', gap: 16, alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.05)', padding: '12px 16px', borderRadius: 12, backdropFilter: 'blur(20px)' }}>
-                <Filter size={16} color="var(--text-secondary)" />
-                <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)' }} />
-                <select
-                  value={filter.status}
-                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                    setFilter({ ...filter, status: e.target.value as TaskStatus | '' })
-                  }
-                  style={{ width: 'auto', padding: '6px 12px', fontSize: 13, fontFamily: 'Outfit, sans-serif', background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', outline: 'none' }}
-                >
-                  <option value="" style={{ background: '#0a0a0f', color: '#fff' }}>All Statuses</option>
-                  <option value="todo" style={{ background: '#0a0a0f', color: '#fff' }}>To Do</option>
-                  <option value="in_progress" style={{ background: '#0a0a0f', color: '#fff' }}>In Progress</option>
-                  <option value="done" style={{ background: '#0a0a0f', color: '#fff' }}>Done</option>
-                </select>
-                <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)' }} />
-                <select
-                  value={filter.priority}
-                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                    setFilter({ ...filter, priority: e.target.value as TaskPriority | '' })
-                  }
-                  style={{ width: 'auto', padding: '6px 12px', fontSize: 13, fontFamily: 'Outfit, sans-serif', background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', outline: 'none' }}
-                >
-                  <option value="" style={{ background: '#0a0a0f', color: '#fff' }}>All Priorities</option>
-                  {PRIORITIES.map((p) => <option key={p} value={p} style={{ background: '#0a0a0f', color: '#fff' }}>{p}</option>)}
-                </select>
-              </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 40 }}>
+            <div>
+              <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: 13, fontWeight: 500, color: 'var(--accent-secondary)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+                Personal
+              </p>
+              <h1 style={{ fontFamily: 'Fraunces, serif', fontSize: 36, fontWeight: 400, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
+                My Tasks
+              </h1>
             </div>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.05)', padding: '12px 16px', borderRadius: 12, backdropFilter: 'blur(20px)' }}>
+              <Filter size={16} color="var(--text-secondary)" />
+              <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)' }} />
+              <select
+                value={filter.status}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                  setFilter({ ...filter, status: e.target.value as TaskStatus | '' })
+                }
+                style={{ width: 'auto', padding: '6px 12px', fontSize: 13, fontFamily: 'Outfit, sans-serif', background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', outline: 'none' }}
+              >
+                <option value="" style={{ background: '#0a0a0f', color: '#fff' }}>All Statuses</option>
+                <option value="todo" style={{ background: '#0a0a0f', color: '#fff' }}>To Do</option>
+                <option value="in_progress" style={{ background: '#0a0a0f', color: '#fff' }}>In Progress</option>
+                <option value="done" style={{ background: '#0a0a0f', color: '#fff' }}>Done</option>
+              </select>
+              <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)' }} />
+              <select
+                value={filter.priority}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                  setFilter({ ...filter, priority: e.target.value as TaskPriority | '' })
+                }
+                style={{ width: 'auto', padding: '6px 12px', fontSize: 13, fontFamily: 'Outfit, sans-serif', background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', outline: 'none' }}
+              >
+                <option value="" style={{ background: '#0a0a0f', color: '#fff' }}>All Priorities</option>
+                {PRIORITIES.map((p) => <option key={p} value={p} style={{ background: '#0a0a0f', color: '#fff' }}>{p}</option>)}
+              </select>
+            </div>
+          </div>
 
-            {/* Overdue banner */}
-            {overdue.length > 0 && (
-              <div style={{ background: 'rgba(248, 113, 113, 0.08)', border: '1px solid rgba(248, 113, 113, 0.2)', borderRadius: 12, padding: '16px 20px', marginBottom: 24, fontFamily: 'Outfit, sans-serif', fontSize: 14, fontWeight: 500, color: '#f87171', display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#f87171', boxShadow: '0 0 10px #f87171' }} />
-                You have {overdue.length} task{overdue.length > 1 ? 's that are' : ' that is'} overdue!
-              </div>
-            )}
+          {/* Overdue banner */}
+          {overdue.length > 0 && (
+            <div style={{ background: 'rgba(248, 113, 113, 0.08)', border: '1px solid rgba(248, 113, 113, 0.2)', borderRadius: 12, padding: '16px 20px', marginBottom: 24, fontFamily: 'Outfit, sans-serif', fontSize: 14, fontWeight: 500, color: '#f87171', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#f87171', boxShadow: '0 0 10px #f87171' }} />
+              You have {overdue.length} task{overdue.length > 1 ? 's that are' : ' that is'} overdue!
+            </div>
+          )}
 
-            {/* Body */}
-            {filtered.length === 0 ? (
+          {/* Body */}
+          {filtered.length === 0 ? (
             <div className="glass-panel" style={{ textAlign: 'center', padding: '80px 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div style={{ width: 64, height: 64, borderRadius: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
                 <CheckSquare size={32} color="var(--text-muted)" />
@@ -188,7 +263,7 @@ export default function MyTasksPage(): ReactElement {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    {['Task', 'Project', 'Status', 'Priority', 'Due Date', 'Update Status'].map((h) => (
+                    {['Task', 'Project', 'Subtasks', 'Status', 'Priority', 'Due Date', 'Update Status'].map((h) => (
                       <th key={h} style={{ padding: '16px 20px', textAlign: 'left', fontSize: 12, fontFamily: 'Outfit, sans-serif', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
                         {h}
                       </th>
@@ -198,49 +273,208 @@ export default function MyTasksPage(): ReactElement {
                 <tbody>
                   {filtered.map((t) => {
                     const isOverdue = !!t.dueDate && t.status !== 'done' && new Date() > new Date(t.dueDate);
+                    const isExpanded = !!expandedTasks[t._id];
+                    const hasChecklist = t.checklist && t.checklist.length > 0;
+                    const totalChecklist = t.checklist ? t.checklist.length : 0;
+                    const doneChecklist = t.checklist ? t.checklist.filter((c) => c.completed).length : 0;
+                    const pctChecklist = totalChecklist > 0 ? Math.round((doneChecklist / totalChecklist) * 100) : 0;
+
                     return (
-                      <tr
-                        key={t._id}
-                        style={{ borderBottom: '1px solid rgba(255,255,255,0.02)', transition: 'background 0.2s' }}
-                        onMouseEnter={(e: React.MouseEvent<HTMLTableRowElement>) => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
-                        onMouseLeave={(e: React.MouseEvent<HTMLTableRowElement>) => e.currentTarget.style.background = 'transparent'}
-                      >
-                        <td style={{ padding: '16px 20px', maxWidth: 300 }}>
-                          <div style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 500, fontFamily: 'Outfit, sans-serif' }}>{t.title}</div>
-                          {t.description && (
-                            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4, fontFamily: 'Outfit, sans-serif', lineHeight: 1.5 }}>
-                              {t.description.slice(0, 60)}{t.description.length > 60 ? '…' : ''}
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ padding: '16px 20px', fontSize: 13, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)' }}>
-                          {t.projectName}
-                        </td>
-                        <td style={{ padding: '16px 20px' }}>
-                          <span className={`badge badge-${t.status === 'in_progress' ? 'progress' : t.status}`}>
-                            {STATUS_MAP[t.status]}
-                          </span>
-                        </td>
-                        <td style={{ padding: '16px 20px' }}>
-                          <span className={`badge badge-${t.priority}`}>{t.priority}</span>
-                        </td>
-                        <td style={{ padding: '16px 20px', fontSize: 13, fontFamily: 'Outfit, sans-serif', fontWeight: 500, color: isOverdue ? '#f87171' : 'var(--text-muted)' }}>
-                          {t.dueDate ? new Date(t.dueDate).toLocaleDateString() : '—'}
-                        </td>
-                        <td style={{ padding: '16px 20px' }}>
-                          <select
-                            value={t.status}
-                            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                              updateStatus(t, e.target.value as TaskStatus)
-                            }
-                            style={{ fontSize: 12, padding: '6px 12px', width: 'auto', fontFamily: 'Outfit, sans-serif', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8, color: 'var(--text-primary)' }}
-                          >
-                            <option value="todo" style={{ background: '#0a0a0f', color: '#fff' }}>To Do</option>
-                            <option value="in_progress" style={{ background: '#0a0a0f', color: '#fff' }}>In Progress</option>
-                            <option value="done" style={{ background: '#0a0a0f', color: '#fff' }}>Done</option>
-                          </select>
-                        </td>
-                      </tr>
+                      <React.Fragment key={t._id}>
+                        <tr
+                          style={{ borderBottom: isExpanded ? 'none' : '1px solid rgba(255,255,255,0.02)', transition: 'background 0.2s' }}
+                          onMouseEnter={(e: React.MouseEvent<HTMLTableRowElement>) => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
+                          onMouseLeave={(e: React.MouseEvent<HTMLTableRowElement>) => e.currentTarget.style.background = 'transparent'}
+                        >
+                          <td style={{ padding: '16px 20px', maxWidth: 300 }}>
+                            <div style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 500, fontFamily: 'Outfit, sans-serif' }}>{t.title}</div>
+                            {t.description && (
+                              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4, fontFamily: 'Outfit, sans-serif', lineHeight: 1.5 }}>
+                                {t.description.slice(0, 60)}{t.description.length > 60 ? '…' : ''}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '16px 20px', fontSize: 13, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)' }}>
+                            {t.projectName}
+                          </td>
+                          <td style={{ padding: '16px 20px', minWidth: 160 }}>
+                            {hasChecklist ? (
+                              <div>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleExpanded(t._id)}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    background: doneChecklist === totalChecklist ? 'rgba(74, 222, 128, 0.1)' : 'rgba(255, 255, 255, 0.04)',
+                                    border: doneChecklist === totalChecklist ? '1px solid rgba(74, 222, 128, 0.25)' : '1px solid rgba(255, 255, 255, 0.08)',
+                                    color: doneChecklist === totalChecklist ? '#4ade80' : 'var(--text-secondary)',
+                                    padding: '4px 8px',
+                                    borderRadius: 8,
+                                    fontSize: 12,
+                                    fontFamily: 'Outfit, sans-serif',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s',
+                                  }}
+                                  title="Click to view and check off subtasks"
+                                >
+                                  <CheckSquare size={13} color={doneChecklist === totalChecklist ? '#4ade80' : 'var(--accent-primary)'} />
+                                  <span>{doneChecklist}/{totalChecklist} ({pctChecklist}%)</span>
+                                  {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                                </button>
+                                <div style={{ height: 3, width: 90, background: 'rgba(255, 255, 255, 0.06)', borderRadius: 2, overflow: 'hidden', marginTop: 4 }}>
+                                  <div style={{ height: '100%', width: `${pctChecklist}%`, background: doneChecklist === totalChecklist ? '#4ade80' : 'var(--accent-primary)', transition: 'width 0.3s' }} />
+                                </div>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => toggleExpanded(t._id)}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  background: 'none',
+                                  border: '1px dashed rgba(255, 255, 255, 0.1)',
+                                  color: 'var(--text-muted)',
+                                  padding: '4px 8px',
+                                  borderRadius: 6,
+                                  fontSize: 11,
+                                  fontFamily: 'Outfit, sans-serif',
+                                  cursor: 'pointer',
+                                }}
+                                title="Add subtask checklist"
+                              >
+                                <Plus size={12} /> Add subtask
+                              </button>
+                            )}
+                          </td>
+                          <td style={{ padding: '16px 20px' }}>
+                            <span className={`badge badge-${t.status === 'in_progress' ? 'progress' : t.status}`}>
+                              {STATUS_MAP[t.status]}
+                            </span>
+                          </td>
+                          <td style={{ padding: '16px 20px' }}>
+                            <span className={`badge badge-${t.priority}`}>{t.priority}</span>
+                          </td>
+                          <td style={{ padding: '16px 20px', fontSize: 13, fontFamily: 'Outfit, sans-serif', fontWeight: 500, color: isOverdue ? '#f87171' : 'var(--text-muted)' }}>
+                            {t.dueDate ? new Date(t.dueDate).toLocaleDateString() : '—'}
+                          </td>
+                          <td style={{ padding: '16px 20px' }}>
+                            <select
+                              value={t.status}
+                              onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                                updateStatus(t, e.target.value as TaskStatus)
+                              }
+                              style={{ fontSize: 12, padding: '6px 12px', width: 'auto', fontFamily: 'Outfit, sans-serif', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8, color: 'var(--text-primary)' }}
+                            >
+                              <option value="todo" style={{ background: '#0a0a0f', color: '#fff' }}>To Do</option>
+                              <option value="in_progress" style={{ background: '#0a0a0f', color: '#fff' }}>In Progress</option>
+                              <option value="done" style={{ background: '#0a0a0f', color: '#fff' }}>Done</option>
+                            </select>
+                          </td>
+                        </tr>
+
+                        {/* Expandable subtasks checklist row */}
+                        {isExpanded && (
+                          <tr style={{ background: 'rgba(255, 255, 255, 0.015)', borderBottom: '1px solid rgba(255, 255, 255, 0.04)' }}>
+                            <td colSpan={7} style={{ padding: '12px 24px 18px' }}>
+                              <div style={{ padding: '14px 18px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: 10, border: '1px solid rgba(255, 255, 255, 0.05)', maxWidth: 650 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                  <span style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <CheckSquare size={14} color="var(--accent-primary)" />
+                                    Subtask Checklist {hasChecklist && `(${doneChecklist}/${totalChecklist} • ${pctChecklist}% done)`}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleExpanded(t._id)}
+                                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 12 }}
+                                  >
+                                    Hide checklist
+                                  </button>
+                                </div>
+
+                                {/* Checklist items */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                                  {hasChecklist ? (
+                                    t.checklist!.map((item, idx) => (
+                                      <div
+                                        key={item._id || idx}
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: 10,
+                                          padding: '7px 10px',
+                                          background: 'rgba(255, 255, 255, 0.02)',
+                                          borderRadius: 8,
+                                          border: '1px solid rgba(255, 255, 255, 0.03)',
+                                        }}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={item.completed}
+                                          onChange={() => toggleChecklistItem(t, idx)}
+                                          style={{ width: 15, height: 15, cursor: 'pointer', accentColor: 'var(--accent-primary)' }}
+                                        />
+                                        <span
+                                          style={{
+                                            flex: 1,
+                                            fontSize: 13,
+                                            fontFamily: 'Outfit, sans-serif',
+                                            color: item.completed ? 'var(--text-muted)' : 'var(--text-primary)',
+                                            textDecoration: item.completed ? 'line-through' : 'none',
+                                            lineHeight: 1.4,
+                                          }}
+                                        >
+                                          {item.title}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => removeSubtaskItem(t, idx)}
+                                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, display: 'flex' }}
+                                          title="Remove subtask"
+                                        >
+                                          <X size={13} />
+                                        </button>
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <p style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif', margin: '4px 0' }}>
+                                      No subtasks added yet. Add one below to track your progress:
+                                    </p>
+                                  )}
+                                </div>
+
+                                {/* Add subtask input */}
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                  <input
+                                    type="text"
+                                    placeholder="Add subtask item… (Press Enter)"
+                                    value={newSubtaskInputs[t._id] || ''}
+                                    onChange={(e) => setNewSubtaskInputs((prev) => ({ ...prev, [t._id]: e.target.value }))}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        addSubtaskItem(t);
+                                      }
+                                    }}
+                                    style={{ flex: 1, fontSize: 12, padding: '7px 12px' }}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="btn-secondary"
+                                    onClick={() => addSubtaskItem(t)}
+                                    style={{ padding: '0 14px', fontSize: 12 }}
+                                  >
+                                    + Add
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>
