@@ -7,21 +7,33 @@ import { tokenHelpers } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import { Zap, Eye, EyeOff } from 'lucide-react';
 
-interface SignupForm { name: string; email: string; password: string }
-interface FieldConfig { key: keyof SignupForm; label: string; type: string; placeholder: string }
+interface SignupForm {
+  name: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+}
+
+interface FieldConfig {
+  key: 'name' | 'email';
+  label: string;
+  type: string;
+  placeholder: string;
+}
 
 const fields: FieldConfig[] = [
-  { key: 'name',  label: 'Full Name', type: 'text',  placeholder: 'Jane Smith' },
-  { key: 'email', label: 'Email Address',     type: 'email', placeholder: 'you@company.com' },
+  { key: 'name',  label: 'Full Name',     type: 'text',  placeholder: 'Jane Smith' },
+  { key: 'email', label: 'Email Address', type: 'email', placeholder: 'you@company.com' },
 ];
 
 export default function SignupPage() {
   const { user, loading: authLoading, signup } = useAuth();
   const toast        = useToast();
   const router       = useRouter();
-  const [form, setForm]         = useState<SignupForm>({ name: '', email: '', password: '' });
-  const [loading, setLoading]   = useState(false);
-  const [showPass, setShowPass] = useState(false);
+  const [form, setForm]                   = useState<SignupForm>({ name: '', email: '', password: '', confirmPassword: '' });
+  const [loading, setLoading]             = useState(false);
+  const [showPass, setShowPass]           = useState(false);
+  const [showConfirm, setShowConfirm]     = useState(false);
 
   // Force redirect to /dashboard if user has a valid token / is already authenticated
   useEffect(() => {
@@ -32,10 +44,17 @@ export default function SignupPage() {
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+
     if (form.password.length < 6) {
       toast('Password must be at least 6 characters', 'error');
       return;
     }
+
+    if (form.password !== form.confirmPassword) {
+      toast('Passwords do not match. Please verify and try again.', 'error');
+      return;
+    }
+
     setLoading(true);
     try {
       await signup(form.name, form.email, form.password);
@@ -65,6 +84,8 @@ export default function SignupPage() {
       </div>
     );
   }
+
+  const isMismatch = form.confirmPassword.length > 0 && form.password !== form.confirmPassword;
 
   return (
     <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#050505', padding:16, position:'relative', overflow:'hidden' }}>
@@ -101,7 +122,8 @@ export default function SignupPage() {
               </div>
             ))}
 
-            <div style={{ marginBottom:32 }}>
+            {/* Password */}
+            <div style={{ marginBottom:20 }}>
               <label style={{ display:'block', fontSize:12, fontFamily:'Outfit, sans-serif', fontWeight:500, letterSpacing:'0.06em', color:'var(--text-secondary)', textTransform:'uppercase', marginBottom:8 }}>
                 Password
               </label>
@@ -121,6 +143,40 @@ export default function SignupPage() {
                   {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
+            </div>
+
+            {/* Confirm Password */}
+            <div style={{ marginBottom:32 }}>
+              <label style={{ display:'block', fontSize:12, fontFamily:'Outfit, sans-serif', fontWeight:500, letterSpacing:'0.06em', color:'var(--text-secondary)', textTransform:'uppercase', marginBottom:8 }}>
+                Confirm Password
+              </label>
+              <div style={{ position:'relative' }}>
+                <input
+                  type={showConfirm ? 'text' : 'password'} required
+                  placeholder="Re-enter password"
+                  value={form.confirmPassword}
+                  onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
+                  style={{
+                    paddingRight:48,
+                    fontSize:15,
+                    padding:'14px 16px',
+                    background:'rgba(0,0,0,0.2)',
+                    borderColor: isMismatch ? '#ef4444' : undefined,
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirm(!showConfirm)}
+                  style={{ position:'absolute', right:16, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', display:'flex' }}
+                >
+                  {showConfirm ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              {isMismatch && (
+                <p style={{ color:'#ef4444', fontSize:12, marginTop:6, fontFamily:'Outfit, sans-serif' }}>
+                  Passwords do not match
+                </p>
+              )}
             </div>
 
             <button type="submit" className="btn-primary" disabled={loading} style={{ width:'100%', justifyContent:'center', padding:'14px', fontSize:15, fontWeight:500, boxShadow:'0 0 20px rgba(129, 140, 248, 0.4)' }}>

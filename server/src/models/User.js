@@ -53,6 +53,14 @@ const userSchema = new mongoose.Schema(
       enum: ['anyone', 'nobody', 'request'],
       default: 'anyone',
     },
+    resetPasswordCode: {
+      type: String,
+      select: false,
+    },
+    resetPasswordExpires: {
+      type: Date,
+      select: false,
+    },
   },
   {
     timestamps: true,

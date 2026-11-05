@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
 const User = require('../models/User');
 const AttendanceLog = require('../models/AttendanceLog');
+const { sendPasswordResetEmail } = require('../utils/email');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -218,6 +220,108 @@ exports.changePassword = async (req, res) => {
     sendTokenResponse(user, 200, res);
   } catch (err) {
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/**
+ * POST /api/auth/forgot-password
+ * Body: { email }
+ */
+exports.forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() }).select('+resetPasswordCode +resetPasswordExpires');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'No account found with that email address' });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({ success: false, message: 'Account is deactivated' });
+    }
+
+    // Generate a 6-digit verification code
+    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    const hashedCode = await bcrypt.hash(resetCode, 10);
+    user.resetPasswordCode = hashedCode;
+    user.resetPasswordExpires = expiresAt;
+    await user.save({ validateBeforeSave: false });
+
+    // Send the password reset email via SMTP
+    try {
+      await sendPasswordResetEmail({
+        to: user.email,
+        name: user.name,
+        code: resetCode,
+      });
+    } catch (emailErr) {
+      console.error('[Email Service] Failed to send password reset email:', emailErr);
+      return res.status(500).json({
+        success: false,
+        message: 'Unable to deliver verification email. Please check your SMTP configuration or try again later.',
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'A 6-digit verification code has been sent to your email address.',
+    });
+  } catch (err) {
+    console.error('forgotPassword error:', err);
+    res.status(500).json({ success: false, message: 'Server error processing password reset request' });
+  }
+};
+
+/**
+ * POST /api/auth/reset-password
+ * Body: { email, code, newPassword }
+ */
+exports.resetPassword = async (req, res) => {
+  try {
+    const { email, code, newPassword } = req.body;
+    if (!email || !code || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Email, reset code, and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: 'New password must be at least 6 characters' });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() }).select('+password +resetPasswordCode +resetPasswordExpires');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'No account found with that email address' });
+    }
+
+    if (!user.resetPasswordCode || !user.resetPasswordExpires) {
+      return res.status(400).json({ success: false, message: 'No password reset was requested for this account' });
+    }
+
+    if (new Date() > new Date(user.resetPasswordExpires)) {
+      return res.status(400).json({ success: false, message: 'Password reset code has expired. Please request a new one.' });
+    }
+
+    const isMatch = await bcrypt.compare(String(code).trim(), user.resetPasswordCode);
+    if (!isMatch) {
+      return res.status(400).json({ success: false, message: 'Invalid reset code' });
+    }
+
+    user.password = newPassword;
+    user.resetPasswordCode = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully! You can now sign in with your new password.',
+    });
+  } catch (err) {
+    console.error('resetPassword error:', err);
+    res.status(500).json({ success: false, message: 'Server error resetting password' });
   }
 };
 

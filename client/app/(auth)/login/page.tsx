@@ -90,9 +90,26 @@ export default function LoginPage() {
             </div>
 
             <div style={{ marginBottom:32 }}>
-              <label style={{ display:'block', fontSize:12, fontFamily:'Outfit, sans-serif', fontWeight:500, letterSpacing:'0.06em', color:'var(--text-secondary)', textTransform:'uppercase', marginBottom:8 }}>
-                Password
-              </label>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+                <label style={{ display:'block', fontSize:12, fontFamily:'Outfit, sans-serif', fontWeight:500, letterSpacing:'0.06em', color:'var(--text-secondary)', textTransform:'uppercase' }}>
+                  Password
+                </label>
+                <Link
+                  href={form.email ? `/forgot-password?email=${encodeURIComponent(form.email)}` : '/forgot-password'}
+                  style={{
+                    fontSize:12,
+                    fontFamily:'Outfit, sans-serif',
+                    color:'var(--accent-primary)',
+                    textDecoration:'none',
+                    fontWeight:500,
+                    transition:'opacity 0.2s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+                  onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <div style={{ position:'relative' }}>
                 <input
                   type={showPass ? 'text' : 'password'} required autoComplete="current-password"
