@@ -4,21 +4,34 @@ const nodemailer = require('nodemailer');
  * Creates and returns a configured Nodemailer transporter using environment variables.
  */
 function createTransporter() {
-  const host = process.env.SMTP_HOST;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  const service = process.env.SMTP_SERVICE;
+  const host = (process.env.SMTP_HOST || '').trim();
+  const rawUser = process.env.SMTP_USER || '';
+  const rawPass = process.env.SMTP_PASS || '';
+  const service = (process.env.SMTP_SERVICE || '').trim().toLowerCase();
 
-  // 1. Service-based transporter (e.g., Gmail, SendGrid, Outlook)
-  if (service && user && pass) {
+  const user = rawUser.trim();
+  // Strip all whitespace from pass (essential for Google 16-char App Passwords like "abcd efgh ijkl mnop")
+  const pass = rawPass.replace(/\s+/g, '');
+
+  if (!user || !pass) {
+    return null;
+  }
+
+  const isGmail = service === 'gmail' || host.toLowerCase().includes('gmail') || user.toLowerCase().endsWith('@gmail.com');
+
+  // 1. Gmail specialized transport (uses port 465 SSL, official and most reliable)
+  if (isGmail) {
     return nodemailer.createTransport({
-      service,
+      service: 'gmail',
       auth: { user, pass },
+      tls: {
+        rejectUnauthorized: false,
+      },
     });
   }
 
   // 2. Custom SMTP host transporter
-  if (host && user && pass) {
+  if (host) {
     const port = parseInt(process.env.SMTP_PORT || '587', 10);
     const secure = process.env.SMTP_SECURE === 'true' || port === 465;
 
@@ -28,13 +41,32 @@ function createTransporter() {
       secure,
       auth: { user, pass },
       tls: {
-        rejectUnauthorized: process.env.NODE_ENV === 'production',
+        rejectUnauthorized: false,
       },
     });
   }
 
-  // 3. Fallback transporter when SMTP credentials are not yet configured in environment
   return null;
+}
+
+/**
+ * Verifies the SMTP transporter connection.
+ */
+async function verifySMTP() {
+  const transporter = createTransporter();
+  if (!transporter) {
+    console.log('⚠️ [SMTP Status] SMTP_USER or SMTP_PASS is missing in server/.env.');
+    return { success: false, message: 'SMTP credentials missing in server/.env' };
+  }
+
+  try {
+    await transporter.verify();
+    console.log('✅ [SMTP Status] Connected to mail server successfully! Ready to deliver emails.');
+    return { success: true };
+  } catch (err) {
+    console.error('❌ [SMTP Status] Verification failed:', err.message);
+    return { success: false, error: err.message };
+  }
 }
 
 /**
@@ -47,7 +79,30 @@ function createTransporter() {
  */
 async function sendPasswordResetEmail({ to, name, code }) {
   const transporter = createTransporter();
-  const fromAddress = process.env.EMAIL_FROM || '"TaskForge" <no-reply@taskforge.com>';
+
+  const rawUser = (process.env.SMTP_USER || '').trim();
+  const host = (process.env.SMTP_HOST || '').trim();
+  const service = (process.env.SMTP_SERVICE || '').trim().toLowerCase();
+  const isGmail = service === 'gmail' || host.toLowerCase().includes('gmail') || rawUser.toLowerCase().endsWith('@gmail.com');
+
+  if (!transporter) {
+    console.warn('\n⚠️ [Email Service] SMTP configuration is missing or incomplete in server/.env.');
+    console.warn('To send real emails to users in production, set:');
+    console.warn('  SMTP_USER=your-email@gmail.com');
+    console.warn('  SMTP_PASS=your-16-character-app-password');
+    console.warn(`[DEV BACKUP] Verification code for ${to}: ${code}\n`);
+    throw new Error('SMTP credentials are missing. Please configure SMTP_USER and SMTP_PASS in server/.env');
+  }
+
+  // Set proper From address:
+  // For Gmail, Google requires the From header to match the authenticated user, otherwise it rejects with 553 error.
+  const fromEnv = (process.env.EMAIL_FROM || '').trim();
+  let fromAddress;
+  if (isGmail || !fromEnv || fromEnv.includes('no-reply@taskforge.com')) {
+    fromAddress = `"TaskForge Security" <${rawUser}>`;
+  } else {
+    fromAddress = fromEnv;
+  }
 
   const htmlContent = `
 <!DOCTYPE html>
@@ -135,19 +190,6 @@ If you did not request this, you can safely ignore this email.
 — TaskForge Security Team
 `;
 
-  if (!transporter) {
-    // If SMTP credentials have not been configured yet in the environment,
-    // log clear instructions and the code in server logs so administrators can test.
-    console.warn('\n⚠️ [Email Service] SMTP configuration is missing from server/.env.');
-    console.warn('To send real emails to users in production, set:');
-    console.warn('  SMTP_HOST=your-smtp-host (e.g. smtp.gmail.com / smtp.sendgrid.net)');
-    console.warn('  SMTP_PORT=587');
-    console.warn('  SMTP_USER=your-user');
-    console.warn('  SMTP_PASS=your-password');
-    console.warn(`[DEVELOPMENT BACKUP LOG] Password reset code for ${to}: ${code}\n`);
-    return { success: true, simulated: true };
-  }
-
   const mailOptions = {
     from: fromAddress,
     to,
@@ -156,10 +198,18 @@ If you did not request this, you can safely ignore this email.
     html: htmlContent,
   };
 
-  const info = await transporter.sendMail(mailOptions);
-  return { success: true, messageId: info.messageId };
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`[Email Service] Verification email successfully sent to ${to}. MessageId: ${info.messageId}`);
+    return { success: true, messageId: info.messageId };
+  } catch (err) {
+    console.error(`[Email Service] SMTP error delivering email to ${to}:`, err);
+    throw err;
+  }
 }
 
 module.exports = {
+  createTransporter,
+  verifySMTP,
   sendPasswordResetEmail,
 };

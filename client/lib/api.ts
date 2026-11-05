@@ -1,6 +1,6 @@
 // lib/api.ts — All API interactions centralized here.
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ||'https://team-task-manager-5ywl.onrender.com';
 
 // ─── Domain types ─────────────────────────────────────────────────────────────
 

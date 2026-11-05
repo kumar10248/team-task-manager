@@ -261,9 +261,11 @@ exports.forgotPassword = async (req, res) => {
       });
     } catch (emailErr) {
       console.error('[Email Service] Failed to send password reset email:', emailErr);
+      const detail = emailErr?.message || 'SMTP delivery failed';
       return res.status(500).json({
         success: false,
-        message: 'Unable to deliver verification email. Please check your SMTP configuration or try again later.',
+        message: `Unable to deliver verification email: ${detail}`,
+        error: detail,
       });
     }
 
