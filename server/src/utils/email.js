@@ -19,11 +19,19 @@ function createTransporter() {
 
   const isGmail = service === 'gmail' || host.toLowerCase().includes('gmail') || user.toLowerCase().endsWith('@gmail.com');
 
+  // Short 8-second timeout so requests do not hang when cloud firewalls (e.g. Render free tier) block ports
+  const timeoutOptions = {
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 8000,
+  };
+
   // 1. Gmail specialized transport (uses port 465 SSL, official and most reliable)
   if (isGmail) {
     return nodemailer.createTransport({
       service: 'gmail',
       auth: { user, pass },
+      ...timeoutOptions,
       tls: {
         rejectUnauthorized: false,
       },
@@ -40,6 +48,7 @@ function createTransporter() {
       port,
       secure,
       auth: { user, pass },
+      ...timeoutOptions,
       tls: {
         rejectUnauthorized: false,
       },
@@ -50,23 +59,101 @@ function createTransporter() {
 }
 
 /**
- * Verifies the SMTP transporter connection.
+ * Sends email using Resend REST API over HTTPS (Port 443).
+ * Never blocked by Render or other cloud firewalls.
  */
-async function verifySMTP() {
-  const transporter = createTransporter();
-  if (!transporter) {
-    console.log('⚠️ [SMTP Status] SMTP_USER or SMTP_PASS is missing in server/.env.');
-    return { success: false, message: 'SMTP credentials missing in server/.env' };
+async function sendViaResend({ to, code, htmlContent, textContent }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return null;
+
+  const fromEmail = process.env.RESEND_FROM || 'TaskForge Security <onboarding@resend.dev>';
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: fromEmail,
+      to: [to],
+      subject: `${code} is your TaskForge verification code`,
+      html: htmlContent,
+      text: textContent,
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.message || `Resend API error (${response.status})`);
   }
 
-  try {
-    await transporter.verify();
-    console.log('✅ [SMTP Status] Connected to mail server successfully! Ready to deliver emails.');
-    return { success: true };
-  } catch (err) {
-    console.error('❌ [SMTP Status] Verification failed:', err.message);
-    return { success: false, error: err.message };
+  console.log(`[Email Service] Delivered via Resend HTTPS API to ${to}. ID: ${data.id}`);
+  return { success: true, messageId: data.id, provider: 'resend' };
+}
+
+/**
+ * Sends email using Brevo (Sendinblue) REST API over HTTPS (Port 443).
+ */
+async function sendViaBrevo({ to, name, code, htmlContent, textContent }) {
+  const apiKey = process.env.BREVO_API_KEY;
+  if (!apiKey) return null;
+
+  const senderEmail = process.env.BREVO_SENDER || 'no-reply@taskforge.com';
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'api-key': apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      sender: { name: 'TaskForge Security', email: senderEmail },
+      to: [{ email: to, name: name || to }],
+      subject: `${code} is your TaskForge verification code`,
+      htmlContent,
+      textContent,
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.message || `Brevo API error (${response.status})`);
   }
+
+  console.log(`[Email Service] Delivered via Brevo HTTPS API to ${to}. ID: ${data.messageId}`);
+  return { success: true, messageId: data.messageId, provider: 'brevo' };
+}
+
+/**
+ * Sends email using Nodemailer SMTP.
+ */
+async function sendViaSMTP({ to, name, code, htmlContent, textContent }) {
+  const transporter = createTransporter();
+  if (!transporter) return null;
+
+  const rawUser = (process.env.SMTP_USER || '').trim();
+  const host = (process.env.SMTP_HOST || '').trim();
+  const service = (process.env.SMTP_SERVICE || '').trim().toLowerCase();
+  const isGmail = service === 'gmail' || host.toLowerCase().includes('gmail') || rawUser.toLowerCase().endsWith('@gmail.com');
+
+  const fromEnv = (process.env.EMAIL_FROM || '').trim();
+  let fromAddress;
+  if (isGmail || !fromEnv || fromEnv.includes('no-reply@taskforge.com')) {
+    fromAddress = rawUser ? `"TaskForge Security" <${rawUser}>` : '"TaskForge Security" <no-reply@taskforge.com>';
+  } else {
+    fromAddress = fromEnv;
+  }
+
+  const mailOptions = {
+    from: fromAddress,
+    to,
+    subject: `${code} is your TaskForge verification code`,
+    text: textContent,
+    html: htmlContent,
+  };
+
+  const info = await transporter.sendMail(mailOptions);
+  console.log(`[Email Service] Delivered via SMTP to ${to}. MessageId: ${info.messageId}`);
+  return { success: true, messageId: info.messageId, provider: 'smtp' };
 }
 
 /**
@@ -78,32 +165,6 @@ async function verifySMTP() {
  * @param {string} options.code - 6-digit verification code
  */
 async function sendPasswordResetEmail({ to, name, code }) {
-  const transporter = createTransporter();
-
-  const rawUser = (process.env.SMTP_USER || '').trim();
-  const host = (process.env.SMTP_HOST || '').trim();
-  const service = (process.env.SMTP_SERVICE || '').trim().toLowerCase();
-  const isGmail = service === 'gmail' || host.toLowerCase().includes('gmail') || rawUser.toLowerCase().endsWith('@gmail.com');
-
-  if (!transporter) {
-    console.warn('\n⚠️ [Email Service] SMTP configuration is missing or incomplete in server/.env.');
-    console.warn('To send real emails to users in production, set:');
-    console.warn('  SMTP_USER=your-email@gmail.com');
-    console.warn('  SMTP_PASS=your-16-character-app-password');
-    console.warn(`[DEV BACKUP] Verification code for ${to}: ${code}\n`);
-    throw new Error('SMTP credentials are missing. Please configure SMTP_USER and SMTP_PASS in server/.env');
-  }
-
-  // Set proper From address:
-  // For Gmail, Google requires the From header to match the authenticated user, otherwise it rejects with 553 error.
-  const fromEnv = (process.env.EMAIL_FROM || '').trim();
-  let fromAddress;
-  if (isGmail || !fromEnv || fromEnv.includes('no-reply@taskforge.com')) {
-    fromAddress = `"TaskForge Security" <${rawUser}>`;
-  } else {
-    fromAddress = fromEnv;
-  }
-
   const htmlContent = `
 <!DOCTYPE html>
 <html>
@@ -190,26 +251,55 @@ If you did not request this, you can safely ignore this email.
 — TaskForge Security Team
 `;
 
-  const mailOptions = {
-    from: fromAddress,
-    to,
-    subject: `${code} is your TaskForge verification code`,
-    text: textContent,
-    html: htmlContent,
-  };
-
-  try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`[Email Service] Verification email successfully sent to ${to}. MessageId: ${info.messageId}`);
-    return { success: true, messageId: info.messageId };
-  } catch (err) {
-    console.error(`[Email Service] SMTP error delivering email to ${to}:`, err);
-    throw err;
+  // 1. Try Resend HTTPS API (Recommended for Render, uses port 443)
+  if (process.env.RESEND_API_KEY) {
+    return await sendViaResend({ to, code, htmlContent, textContent });
   }
+
+  // 2. Try Brevo HTTPS API (uses port 443)
+  if (process.env.BREVO_API_KEY) {
+    return await sendViaBrevo({ to, name, code, htmlContent, textContent });
+  }
+
+  // 3. Try Nodemailer SMTP
+  try {
+    const smtpResult = await sendViaSMTP({ to, name, code, htmlContent, textContent });
+    if (smtpResult) return smtpResult;
+  } catch (smtpErr) {
+    const isTimeout = smtpErr.code === 'ETIMEDOUT' || smtpErr.timeoutType === 'CONNECT_TIMEOUT';
+
+    if (isTimeout) {
+      console.error('\n' + '='.repeat(64));
+      console.error('⚠️  RENDER FIREWALL BLOCKED OUTBOUND SMTP (ETIMEDOUT)');
+      console.error('Render blocks outbound SMTP ports 25, 465, and 587 on free tier.');
+      console.error(`\n🔑 [RENDER DASHBOARD FALLBACK] Verification code for ${to}: ${code}\n`);
+      console.error('💡 RECOMMENDED FIX:');
+      console.error('   Add RESEND_API_KEY to your Render Environment variables.');
+      console.error('   Resend sends emails over HTTPS (Port 443) which Render never blocks.');
+      console.error('   Get a free key (3,000 emails/mo) in 30 seconds at: https://resend.com');
+      console.error('='.repeat(64) + '\n');
+
+      return {
+        success: true,
+        renderBlocked: true,
+        message: 'Render free tier blocks SMTP ports (ETIMEDOUT). Your code was logged in Render Dashboard logs! Add RESEND_API_KEY in Render to send real emails over HTTPS.',
+      };
+    }
+
+    throw smtpErr;
+  }
+
+  // Fallback if no provider was configured
+  console.warn('\n⚠️ [Email Service] No email provider configured in server/.env.');
+  console.warn(`[DEV BACKUP] Verification code for ${to}: ${code}\n`);
+  return {
+    success: true,
+    renderBlocked: true,
+    message: 'No email service configured. Verification code logged to server console.',
+  };
 }
 
 module.exports = {
   createTransporter,
-  verifySMTP,
   sendPasswordResetEmail,
 };

@@ -252,13 +252,20 @@ exports.forgotPassword = async (req, res) => {
     user.resetPasswordExpires = expiresAt;
     await user.save({ validateBeforeSave: false });
 
-    // Send the password reset email via SMTP
+    // Send the password reset email
     try {
-      await sendPasswordResetEmail({
+      const emailResult = await sendPasswordResetEmail({
         to: user.email,
         name: user.name,
         code: resetCode,
       });
+
+      if (emailResult && emailResult.renderBlocked) {
+        return res.json({
+          success: true,
+          message: emailResult.message || 'Verification code logged to server logs (Render free tier blocks SMTP ports).',
+        });
+      }
     } catch (emailErr) {
       console.error('[Email Service] Failed to send password reset email:', emailErr);
       const detail = emailErr?.message || 'SMTP delivery failed';
