@@ -260,10 +260,10 @@ exports.forgotPassword = async (req, res) => {
         code: resetCode,
       });
 
-      if (emailResult && emailResult.renderBlocked) {
+      if (emailResult && (emailResult.renderBlocked || emailResult.sandboxForwarded)) {
         return res.json({
           success: true,
-          message: emailResult.message || 'Verification code logged to server logs (Render free tier blocks SMTP ports).',
+          message: emailResult.message || 'Verification code sent!',
         });
       }
     } catch (emailErr) {

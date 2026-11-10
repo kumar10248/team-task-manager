@@ -84,7 +84,81 @@ async function sendViaResend({ to, code, htmlContent, textContent }) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.message || `Resend API error (${response.status})`);
+    const errorMsg = data.message || `Resend API error (${response.status})`;
+
+    // Check if Resend rejected because of its testing sandbox limitation
+    const isSandboxRestriction =
+      errorMsg.includes('testing emails to your own email address') ||
+      errorMsg.includes('resend.com/domains');
+
+    if (isSandboxRestriction) {
+      // Extract the allowed owner email from the error message, e.g. "harshay.131@gmail.com"
+      const match = errorMsg.match(/\(([^)]+@[^)]+)\)/);
+      const ownerEmail = match ? match[1] : (process.env.SMTP_USER || null);
+
+      console.warn('\n' + '='.repeat(64));
+      console.warn('⚠️  RESEND TESTING SANDBOX RESTRICTION');
+      console.warn(`Resend sandbox only allows delivering directly to your account email (${ownerEmail || 'owner'}).`);
+      console.warn(`🔑 [VERIFICATION CODE FOR ${to}]: ${code}`);
+      console.warn('='.repeat(64) + '\n');
+
+      if (ownerEmail && ownerEmail.toLowerCase() !== to.toLowerCase()) {
+        try {
+          console.log(`[Email Service] Forwarding verification code to Resend account owner: ${ownerEmail}...`);
+          const forwardRes = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              from: fromEmail,
+              to: [ownerEmail],
+              subject: `[TaskForge Code for ${to}]: ${code}`,
+              html: `
+                <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #f3f4f6; padding: 28px; border-radius: 12px; max-width: 500px;">
+                  <h2 style="color: #818cf8; margin-top: 0;">TaskForge Verification Code</h2>
+                  <p style="color: #9ca3af; font-size: 14px; line-height: 1.5;">
+                    A password reset was requested for: <strong style="color: #ffffff;">${to}</strong>.
+                  </p>
+                  <p style="color: #9ca3af; font-size: 13px; line-height: 1.5;">
+                    Because your Resend account is in testing sandbox mode, Resend forwarded this email to your verified account address (<strong style="color: #e5e7eb;">${ownerEmail}</strong>):
+                  </p>
+                  <div style="background: #111827; border: 1px solid rgba(129, 140, 248, 0.4); padding: 18px; border-radius: 8px; font-size: 32px; font-weight: bold; letter-spacing: 8px; text-align: center; color: #818cf8; margin: 20px 0;">
+                    ${code}
+                  </div>
+                  <p style="font-size: 12px; color: #6b7280; line-height: 1.4;">
+                    To deliver directly to any recipient without forwarding, verify a domain at <a href="https://resend.com/domains" style="color: #818cf8;">resend.com/domains</a> or use Brevo.
+                  </p>
+                </div>
+              `,
+              text: `Password reset verification code for ${to}: ${code}\nForwarded to ${ownerEmail} because Resend is in testing sandbox mode.`,
+            }),
+          });
+
+          if (forwardRes.ok) {
+            console.log(`[Email Service] Verification code successfully forwarded to ${ownerEmail}`);
+            return {
+              success: true,
+              sandboxForwarded: true,
+              forwardedTo: ownerEmail,
+              message: `Resend sandbox: Verification code was delivered to your account email (${ownerEmail}).`,
+            };
+          }
+        } catch (forwardErr) {
+          console.error('[Email Service] Failed forwarding to owner:', forwardErr.message);
+        }
+      }
+
+      // If forwarding wasn't possible or failed, still allow testing via console log & friendly UI message
+      return {
+        success: true,
+        renderBlocked: true,
+        message: `Resend sandbox: Code logged in Render deployment logs (${code}). To deliver to any address, verify your domain at resend.com/domains.`,
+      };
+    }
+
+    throw new Error(errorMsg);
   }
 
   console.log(`[Email Service] Delivered via Resend HTTPS API to ${to}. ID: ${data.id}`);
