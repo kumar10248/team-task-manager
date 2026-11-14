@@ -1,4 +1,5 @@
 const Task = require('../models/Task');
+const Project = require('../models/Project');
 const ProjectMember = require('../models/ProjectMember');
 const User = require('../models/User');
 
@@ -6,6 +7,37 @@ const User = require('../models/User');
 
 const getMembership = (projectId, userId) =>
   ProjectMember.findOne({ project: projectId, user: userId }).lean();
+
+/**
+ * Sync custom tags to the Project in database (Case-Insensitive uniqueness)
+ */
+const syncProjectTags = async (projectId, tags) => {
+  if (!tags || !Array.isArray(tags) || tags.length === 0) return;
+  try {
+    const project = await Project.findById(projectId);
+    if (!project) return;
+    const currentTags = project.tags || [];
+    let modified = false;
+
+    tags.forEach((raw) => {
+      if (!raw || typeof raw !== 'string') return;
+      const clean = raw.trim().replace(/^#/, '');
+      if (!clean) return;
+      const exists = currentTags.some((t) => t.trim().toLowerCase() === clean.toLowerCase());
+      if (!exists) {
+        currentTags.push(clean);
+        modified = true;
+      }
+    });
+
+    if (modified) {
+      project.tags = currentTags;
+      await project.save();
+    }
+  } catch (err) {
+    console.error('Error syncing project tags:', err);
+  }
+};
 
 // ─── Controllers ────────────────────────────────────────────────────────────
 
@@ -120,6 +152,11 @@ exports.createTask = async (req, res) => {
           recipient: assigneeId, sender: req.user._id, type: 'assignment', project: projectId, task: task._id, text: `assigned you to "${title}"`
         });
       }
+    }
+
+    // Sync any custom tags to project in database (Case-Insensitive)
+    if (Array.isArray(tags) && tags.length > 0) {
+      syncProjectTags(projectId, tags).catch(() => {});
     }
 
     res.status(201).json({ success: true, task: populated });
@@ -340,6 +377,11 @@ exports.updateTask = async (req, res) => {
 
     Object.assign(task, updates);
     await task.save();
+
+    // Sync any custom tags to project in database (Case-Insensitive)
+    if (updates.tags && Array.isArray(updates.tags) && updates.tags.length > 0) {
+      syncProjectTags(projectId, updates.tags).catch(() => {});
+    }
 
     // Assignment notifications to newly assigned users
     if (updates.assignedTo !== undefined) {

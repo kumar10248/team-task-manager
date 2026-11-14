@@ -33,6 +33,14 @@ router.route('/:id/members/:userId')
   .patch(project.updateMemberRole)
   .delete(project.removeMember);
 
+// Project custom tags (Case-Insensitive)
+router.route('/:id/tags')
+  .get(project.getProjectTags)
+  .post(project.addProjectTag);
+
+router.route('/:id/tags/:tag')
+  .delete(project.deleteProjectTag);
+
 // ── Tasks nested under project ─────────────────────────────────────────────
 router.route('/:projectId/tasks')
   .get(task.getTasks)

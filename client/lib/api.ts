@@ -39,6 +39,7 @@ export interface Project {
   createdAt: string;
   myRole?: 'admin' | 'member';
   taskStats?: { todo: number; in_progress: number; done: number; total: number };
+  tags?: string[];
 }
 
 export interface ProjectMember {
@@ -187,6 +188,9 @@ export const projectsApi = {
   getInvitations:    ()                                    => get<{ success: boolean; invitations: ProjectInvitation[] }>('/projects/invitations'),
   acceptInvitation:  (id: string)                          => post<{ success: boolean; message: string; project: string }>(`/projects/invitations/${id}/accept`, {}),
   declineInvitation: (id: string)                          => post<{ success: boolean; message: string }>(`/projects/invitations/${id}/decline`, {}),
+  getTags:           (id: string)                          => get<{ success: boolean; tags: string[] }>(`/projects/${id}/tags`),
+  addTag:            (id: string, tag: string)             => post<{ success: boolean; tag: string; tags: string[] }>(`/projects/${id}/tags`, { tag }),
+  deleteTag:         (id: string, tag: string)             => del<{ success: boolean; tags: string[] }>(`/projects/${id}/tags/${encodeURIComponent(tag)}`),
 };
 
 // ─── Tasks ───────────────────────────────────────────────────────────────────

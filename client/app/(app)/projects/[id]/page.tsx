@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useRef, FormEvent, useCallback } from 'react';
+import { useEffect, useState, useRef, useMemo, FormEvent, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
@@ -29,6 +29,7 @@ const STATUS_COLS: Array<{ key: TaskStatus; label: string; color: string }> = [
 
 const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent'];
 const ROLES: Array<'admin' | 'member'> = ['admin', 'member'];
+const DEFAULT_TAG_PRESETS = ['bug', 'feature', 'frontend', 'backend', 'design', 'v1.0'];
 
 const PRIORITY_COLORS: Record<TaskPriority, string> = {
   low: '#4ade80',
@@ -1285,6 +1286,7 @@ export default function ProjectDetailPage() {
   const toast  = useToast();
 
   const [project, setProject]   = useState<Project | null>(null);
+  const [projectTags, setProjectTags] = useState<string[]>([]);
   const [members, setMembers]   = useState<ProjectMember[]>([]);
   const [tasks, setTasks]       = useState<Task[]>([]);
   const [myRole, setMyRole]     = useState<'admin' | 'member'>('member');
@@ -1310,6 +1312,7 @@ export default function ProjectDetailPage() {
   const [deleteTaskTarget, setDeleteTaskTarget] = useState<Task | null>(null);
   const [commentTask, setCommentTask]           = useState<Task | null>(null);
   const [editingMember, setEditingMember]       = useState<ProjectMember | null>(null);
+  const [isTagDeleteMode, setIsTagDeleteMode]   = useState(false);
 
   // Filters & Search
   const [searchQuery, setSearchQuery]         = useState('');
@@ -1345,6 +1348,7 @@ export default function ProjectDetailPage() {
         tasksApi.list(id, { limit: 1000 }),
       ]);
       setProject(pRes.project);
+      if (pRes.project?.tags) setProjectTags(pRes.project.tags);
       setMembers(pRes.members);
       setMyRole(pRes.project.myRole ?? 'member');
       setTasks(tRes.tasks);
@@ -1369,6 +1373,7 @@ export default function ProjectDetailPage() {
       .then(([pRes, tRes]) => {
         if (!active) return;
         setProject(pRes.project);
+      if (pRes.project?.tags) setProjectTags(pRes.project.tags);
         setMembers(pRes.members);
         setMyRole(pRes.project.myRole ?? 'member');
         setTasks(tRes.tasks);
@@ -1490,6 +1495,7 @@ export default function ProjectDetailPage() {
     setTaskForm(EMPTY_TASK_FORM);
     setNewChecklistTitle('');
     setNewTagInput('');
+    setIsTagDeleteMode(false);
     setShowTaskModal(true);
   }, []);
 
@@ -1507,6 +1513,7 @@ export default function ProjectDetailPage() {
     });
     setNewChecklistTitle('');
     setNewTagInput('');
+    setIsTagDeleteMode(false);
     setShowTaskModal(true);
   }, []);
 
@@ -1517,7 +1524,9 @@ export default function ProjectDetailPage() {
       const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
 
       if (e.key === 'Escape') {
-        setShowTaskModal(false);
+        setIsTagDeleteMode(false);
+      setShowTaskModal(false);
+        setIsTagDeleteMode(false);
         setEditingTask(null);
         setShowMemberModal(false);
         setDeleteTaskTarget(null);
@@ -1594,20 +1603,116 @@ export default function ProjectDetailPage() {
     }));
   };
 
-  const addTag = (tag: string) => {
-    const clean = tag.trim().toLowerCase().replace(/^#/, '');
+  // Unique available tags for THIS specific project (case-insensitive deduplication)
+  const availableTags = useMemo(() => {
+    const list: string[] = [];
+    const seen = new Set<string>();
+
+    const pushUnique = (raw: string) => {
+      if (!raw) return;
+      const clean = raw.trim().replace(/^#/, '');
+      if (!clean) return;
+      const lower = clean.toLowerCase();
+      if (!seen.has(lower)) {
+        seen.add(lower);
+        list.push(clean);
+      }
+    };
+
+    DEFAULT_TAG_PRESETS.forEach(pushUnique);
+    projectTags.forEach(pushUnique);
+    (project?.tags || []).forEach(pushUnique);
+
+    return list;
+  }, [projectTags, project?.tags]);
+
+  const addTag = async (tag: string) => {
+    const clean = tag.trim().replace(/^#/, '');
     if (!clean) return;
-    if (!taskForm.tags.includes(clean)) {
+    const lower = clean.toLowerCase();
+
+    // 1. Add to current taskForm.tags if not already present (case-insensitive check)
+    const isAlreadySelected = taskForm.tags.some((t) => t.trim().toLowerCase() === lower);
+    if (!isAlreadySelected) {
       setTaskForm((prev) => ({ ...prev, tags: [...prev.tags, clean] }));
     }
+
+    // 2. If it's a unique custom tag not yet in this project's tags, save to DB for this project
+    const isAlreadyInProject = projectTags.some((t) => t.trim().toLowerCase() === lower);
+    if (!isAlreadyInProject) {
+      setProjectTags((prev) => [...prev, clean]);
+      try {
+        const res = await projectsApi.addTag(id, clean);
+        if (res.success && res.tags) {
+          setProjectTags(res.tags);
+        }
+      } catch (err) {
+        console.error('Failed to save custom tag to project:', err);
+      }
+    }
+
     setNewTagInput('');
   };
 
+  const toggleTag = (tag: string) => {
+    const lower = tag.trim().toLowerCase();
+    const isSelected = taskForm.tags.some((t) => t.trim().toLowerCase() === lower);
+    if (isSelected) {
+      removeTag(tag);
+    } else {
+      addTag(tag);
+    }
+  };
+
   const removeTag = (tag: string) => {
+    const lower = tag.trim().toLowerCase();
     setTaskForm((prev) => ({
       ...prev,
-      tags: prev.tags.filter((t) => t !== tag),
+      tags: prev.tags.filter((t) => t.trim().toLowerCase() !== lower),
     }));
+  };
+
+  const handleDeleteTaglineFromDb = async (tag: string) => {
+    const clean = tag.trim().replace(/^#/, '');
+    if (!clean) return;
+    if (!confirm(`Are you sure you want to permanently delete tagline "${clean}" from this project's database?`)) {
+      return;
+    }
+
+    try {
+      const res = await projectsApi.deleteTag(id, clean);
+      if (res.success) {
+        toast(`Tagline "${clean}" deleted from database`, 'success');
+        const lower = clean.toLowerCase();
+
+        // 1. Remove from projectTags state
+        setProjectTags((prev) => prev.filter((t) => t.trim().toLowerCase() !== lower));
+
+        // 2. Also remove from project.tags if present
+        if (project?.tags) {
+          setProject((prev) =>
+            prev ? { ...prev, tags: (prev.tags || []).filter((t) => t.trim().toLowerCase() !== lower) } : null
+          );
+        }
+
+        // 3. Remove from current task form if selected
+        setTaskForm((prev) => ({
+          ...prev,
+          tags: prev.tags.filter((t) => t.trim().toLowerCase() !== lower),
+        }));
+
+        // 4. Remove from loaded tasks in state so cards update immediately
+        setTasks((prev) =>
+          prev.map((t) => ({
+            ...t,
+            tags: (t.tags || []).filter((tg) => tg.trim().toLowerCase() !== lower),
+          }))
+        );
+      }
+    } catch (err) {
+      console.error(err);
+      toast(err instanceof Error ? err.message : 'Failed to delete tagline', 'error');
+    }
   };
 
   const exportTasksCSV = () => {
@@ -1695,6 +1800,19 @@ export default function ProjectDetailPage() {
         toast('Task created');
         setTasks((prev) => [res.task, ...prev]);
       }
+      if (taskForm.tags && taskForm.tags.length > 0) {
+        setProjectTags((prev) => {
+          const list = [...prev];
+          taskForm.tags.forEach((t) => {
+            const clean = t.trim().replace(/^#/, '');
+            if (!list.some((existing) => existing.toLowerCase() === clean.toLowerCase())) {
+              list.push(clean);
+            }
+          });
+          return list;
+        });
+      }
+      setIsTagDeleteMode(false);
       setShowTaskModal(false);
       setEditingTask(null);
       setTaskForm(EMPTY_TASK_FORM);
@@ -2104,33 +2222,163 @@ export default function ProjectDetailPage() {
 
       {/* Tags / Categories */}
       <div style={{ marginBottom: 20 }}>
-        <FieldLabel>Tags / Labels</FieldLabel>
-        {/* Presets */}
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-          {['bug', 'feature', 'frontend', 'backend', 'design', 'v1.0'].map((preset) => (
-            <button
-              key={preset}
-              type="button"
-              onClick={() => addTag(preset)}
-              style={{
-                fontSize: 11,
-                fontFamily: 'Outfit, sans-serif',
-                padding: '2px 8px',
-                borderRadius: 10,
-                background: taskForm.tags.includes(preset) ? 'rgba(129, 140, 248, 0.2)' : 'rgba(255, 255, 255, 0.03)',
-                color: taskForm.tags.includes(preset) ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                border: taskForm.tags.includes(preset) ? '1px solid var(--accent-primary)' : '1px solid rgba(255, 255, 255, 0.08)',
-                cursor: 'pointer',
-              }}
-            >
-              + {preset}
-            </button>
-          ))}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <FieldLabel>Tags / Labels</FieldLabel>
+          <button
+            type="button"
+            onClick={() => setIsTagDeleteMode((prev) => !prev)}
+            style={{
+              background: isTagDeleteMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(255, 255, 255, 0.04)',
+              border: isTagDeleteMode ? '1px solid rgba(239, 68, 68, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
+              color: isTagDeleteMode ? '#f87171' : 'var(--text-secondary)',
+              fontSize: 11,
+              fontFamily: 'Outfit, sans-serif',
+              fontWeight: 500,
+              padding: '3px 10px',
+              borderRadius: 6,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              transition: 'all 0.2s ease',
+            }}
+            title={isTagDeleteMode ? 'Done deleting taglines' : 'Enable delete tagline mode'}
+          >
+            {isTagDeleteMode ? (
+              <>
+                <Check size={12} color="#f87171" />
+                Done
+              </>
+            ) : (
+              <>
+                <Trash2 size={11} color="var(--text-muted)" />
+                Remove / Delete Tagline
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Delete Mode Banner */}
+        {isTagDeleteMode && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 11,
+              fontFamily: 'Outfit, sans-serif',
+              color: '#f87171',
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.2)',
+              borderRadius: 6,
+              padding: '6px 10px',
+              marginBottom: 10,
+            }}
+          >
+            <Trash2 size={12} />
+            <span>Click <strong>Delete</strong> next to any tagline below to permanently remove it from the database.</span>
+          </div>
+        )}
+
+        {/* Available Tags / Project Presets (Case-Insensitive, Project-Specific) */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+          {availableTags.map((preset) => {
+            const isSelected = taskForm.tags.some(
+              (t) => t.trim().toLowerCase() === preset.trim().toLowerCase()
+            );
+
+            if (isTagDeleteMode) {
+              return (
+                <div
+                  key={preset}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    borderRadius: 12,
+                    background: 'rgba(239, 68, 68, 0.08)',
+                    border: '1px dashed rgba(239, 68, 68, 0.4)',
+                    padding: '2px 4px 2px 10px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontFamily: 'Outfit, sans-serif',
+                      color: 'var(--text-secondary)',
+                      marginRight: 6,
+                    }}
+                  >
+                    #{preset}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteTaglineFromDb(preset)}
+                    title={`Permanently delete tagline "${preset}" from database`}
+                    style={{
+                      background: 'rgba(239, 68, 68, 0.15)',
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                      color: '#f87171',
+                      cursor: 'pointer',
+                      padding: '2px 8px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: 8,
+                      fontSize: 10,
+                      fontWeight: 600,
+                      gap: 4,
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#ef4444';
+                      e.currentTarget.style.color = '#fff';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
+                      e.currentTarget.style.color = '#f87171';
+                    }}
+                  >
+                    <Trash2 size={10} />
+                    Delete
+                  </button>
+                </div>
+              );
+            }
+
+            return (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => toggleTag(preset)}
+                title={isSelected ? 'Click to deselect tag' : 'Click to select tag for this task'}
+                style={{
+                  fontSize: 11,
+                  fontFamily: 'Outfit, sans-serif',
+                  padding: '3px 10px',
+                  borderRadius: 12,
+                  background: isSelected ? 'rgba(129, 140, 248, 0.22)' : 'rgba(255, 255, 255, 0.03)',
+                  color: isSelected ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                  border: isSelected
+                    ? '1px solid var(--accent-primary)'
+                    : '1px solid rgba(255, 255, 255, 0.08)',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span style={{ fontSize: 10, fontWeight: 700 }}>{isSelected ? '✓' : '+'}</span>
+                {preset}
+              </button>
+            );
+          })}
         </div>
 
         {/* Selected tags */}
         {taskForm.tags.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
             {taskForm.tags.map((tag) => (
               <span
                 key={tag}
@@ -2141,9 +2389,9 @@ export default function ProjectDetailPage() {
                   padding: '2px 8px',
                   borderRadius: 10,
                   fontSize: 11,
-                  background: 'rgba(129, 140, 248, 0.12)',
+                  background: 'rgba(129, 140, 248, 0.15)',
                   color: '#a5b4fc',
-                  border: '1px solid rgba(129, 140, 248, 0.25)',
+                  border: '1px solid rgba(129, 140, 248, 0.3)',
                 }}
               >
                 #{tag}
@@ -2151,6 +2399,7 @@ export default function ProjectDetailPage() {
                   type="button"
                   onClick={() => removeTag(tag)}
                   style={{ background: 'none', border: 'none', color: '#a5b4fc', cursor: 'pointer', padding: 0, display: 'flex' }}
+                  title="Remove tag"
                 >
                   <X size={12} />
                 </button>

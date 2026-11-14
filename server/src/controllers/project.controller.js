@@ -118,7 +118,7 @@ exports.getProject = async (req, res) => {
 
     const projectObjectId = new mongoose.Types.ObjectId(req.params.id);
 
-    const [project, members, taskStats] = await Promise.all([
+    const [project, members, taskStats, taskTags] = await Promise.all([
       Project.findById(req.params.id).populate('createdBy', 'name email').lean(),
       ProjectMember.find({ project: req.params.id })
         .populate('user', 'name email avatar isClockedIn lastClockIn lastClockOut')
@@ -127,13 +127,36 @@ exports.getProject = async (req, res) => {
         { $match: { project: projectObjectId } },
         { $group: { _id: '$status', count: { $sum: 1 } } },
       ]),
+      Task.distinct('tags', { project: projectObjectId }),
     ]);
 
     if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
 
+    // Deduplicate tags case-insensitively
+    const seen = new Set();
+    const mergedTags = [];
+    const addTagUnique = (raw) => {
+      if (!raw || typeof raw !== 'string') return;
+      const clean = raw.trim().replace(/^#/, '');
+      if (!clean) return;
+      const lower = clean.toLowerCase();
+      if (!seen.has(lower)) {
+        seen.add(lower);
+        mergedTags.push(clean);
+      }
+    };
+
+    (project.tags || []).forEach(addTagUnique);
+    (taskTags || []).forEach(addTagUnique);
+
+    // If new tags were found from tasks that were not in project.tags, sync them
+    if (mergedTags.length > (project.tags || []).length) {
+      Project.findByIdAndUpdate(req.params.id, { $set: { tags: mergedTags } }).catch(() => {});
+    }
+
     res.json({
       success: true,
-      project: { ...project, myRole: membership.role },
+      project: { ...project, tags: mergedTags, myRole: membership.role },
       members,
       taskStats,
     });
@@ -515,5 +538,126 @@ exports.declineInvitation = async (req, res) => {
   } catch (err) {
     console.error('Decline invitation error:', err);
     res.status(500).json({ success: false, message: 'Failed to decline invitation' });
+  }
+};
+
+/**
+ * GET /api/projects/:id/tags
+ * Returns all custom unique tags for this project (Case-Insensitive unique)
+ */
+exports.getProjectTags = async (req, res) => {
+  try {
+    const membership = await getMembership(req.params.id, req.user._id);
+    if (!membership) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const projectObjectId = new mongoose.Types.ObjectId(req.params.id);
+    const [project, taskTags] = await Promise.all([
+      Project.findById(req.params.id).select('tags').lean(),
+      Task.distinct('tags', { project: projectObjectId }),
+    ]);
+
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
+
+    const seen = new Set();
+    const tags = [];
+    const addTagUnique = (raw) => {
+      if (!raw || typeof raw !== 'string') return;
+      const clean = raw.trim().replace(/^#/, '');
+      if (!clean) return;
+      const lower = clean.toLowerCase();
+      if (!seen.has(lower)) {
+        seen.add(lower);
+        tags.push(clean);
+      }
+    };
+
+    (project.tags || []).forEach(addTagUnique);
+    (taskTags || []).forEach(addTagUnique);
+
+    res.json({ success: true, tags });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to fetch project tags' });
+  }
+};
+
+/**
+ * POST /api/projects/:id/tags
+ * Add a unique custom tag to the specific project in database (Case-Insensitive)
+ * Body: { tag: string }
+ */
+exports.addProjectTag = async (req, res) => {
+  try {
+    const membership = await getMembership(req.params.id, req.user._id);
+    if (!membership) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const { tag } = req.body;
+    if (!tag || typeof tag !== 'string' || !tag.trim()) {
+      return res.status(400).json({ success: false, message: 'Tag name is required' });
+    }
+
+    const clean = tag.trim().replace(/^#/, '');
+    if (clean.length > 50) {
+      return res.status(400).json({ success: false, message: 'Tag cannot exceed 50 characters' });
+    }
+
+    const project = await Project.findById(req.params.id);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
+
+    const currentTags = project.tags || [];
+    const exists = currentTags.some((t) => t.trim().toLowerCase() === clean.toLowerCase());
+
+    if (!exists) {
+      project.tags.push(clean);
+      await project.save();
+    }
+
+    res.json({ success: true, tag: clean, tags: project.tags });
+  } catch (err) {
+    console.error('Add project tag error:', err);
+    res.status(500).json({ success: false, message: 'Failed to add project tag' });
+  }
+};
+
+/**
+ * DELETE /api/projects/:id/tags/:tag
+ * Remove a custom tagline from this project's database (both project presets and tasks)
+ */
+exports.deleteProjectTag = async (req, res) => {
+  try {
+    const membership = await getMembership(req.params.id, req.user._id);
+    if (!membership) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const tagToDelete = decodeURIComponent(req.params.tag).trim().replace(/^#/, '');
+    const project = await Project.findById(req.params.id);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
+
+    // 1. Remove from Project.tags (case-insensitively)
+    project.tags = (project.tags || []).filter(
+      (t) => t.trim().toLowerCase() !== tagToDelete.toLowerCase()
+    );
+    await project.save();
+
+    // 2. Also remove from all tasks belonging to this project (case-insensitively)
+    const escaped = tagToDelete.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const matchingTasks = await Task.find({
+      project: req.params.id,
+      tags: { $regex: new RegExp(`^${escaped}$`, 'i') },
+    }).select('_id tags');
+
+    for (const t of matchingTasks) {
+      t.tags = (t.tags || []).filter((tag) => tag.trim().toLowerCase() !== tagToDelete.toLowerCase());
+      await t.save();
+    }
+
+    res.json({ success: true, deletedTag: tagToDelete, tags: project.tags });
+  } catch (err) {
+    console.error('Delete project tag error:', err);
+    res.status(500).json({ success: false, message: 'Failed to delete project tag' });
   }
 };

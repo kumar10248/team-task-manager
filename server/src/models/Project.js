@@ -34,6 +34,16 @@ const projectSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    tags: {
+      type: [
+        {
+          type: String,
+          trim: true,
+          maxlength: [50, 'Tag cannot exceed 50 characters'],
+        },
+      ],
+      default: [],
+    },
   },
   {
     timestamps: true,
