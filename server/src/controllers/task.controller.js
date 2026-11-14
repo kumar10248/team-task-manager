@@ -79,13 +79,21 @@ exports.createTask = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Task title is required' });
     }
 
-    // Validate assignee is a project member
-    if (assignedTo) {
-      const assigneeMembership = await getMembership(projectId, assignedTo);
+    // Normalize assignees (supports array of IDs or single ID)
+    let assignees = [];
+    if (Array.isArray(assignedTo)) {
+      assignees = [...new Set(assignedTo.filter(Boolean).map((id) => id.toString()))];
+    } else if (assignedTo) {
+      assignees = [assignedTo.toString()];
+    }
+
+    // Validate each assignee is a project member
+    for (const assigneeId of assignees) {
+      const assigneeMembership = await getMembership(projectId, assigneeId);
       if (!assigneeMembership) {
         return res
           .status(400)
-          .json({ success: false, message: 'Assignee must be a project member' });
+          .json({ success: false, message: 'All assignees must be project members' });
       }
     }
 
@@ -94,7 +102,7 @@ exports.createTask = async (req, res) => {
       description: description || '',
       project: projectId,
       createdBy: req.user._id,
-      assignedTo: assignedTo || null,
+      assignedTo: assignees,
       priority,
       dueDate,
       tags: Array.isArray(tags) ? tags : [],
@@ -105,10 +113,13 @@ exports.createTask = async (req, res) => {
       .populate('assignedTo', 'name email avatar')
       .populate('createdBy', 'name email');
 
-    if (assignedTo && assignedTo.toString() !== req.user._id.toString()) {
-      require('./notification.controller').createNotification({
-        recipient: assignedTo, sender: req.user._id, type: 'assignment', project: projectId, task: task._id, text: `assigned you to "${title}"`
-      });
+    // Send notification to each assigned user (except creator)
+    for (const assigneeId of assignees) {
+      if (assigneeId !== req.user._id.toString()) {
+        require('./notification.controller').createNotification({
+          recipient: assigneeId, sender: req.user._id, type: 'assignment', project: projectId, task: task._id, text: `assigned you to "${title}"`
+        });
+      }
     }
 
     res.status(201).json({ success: true, task: populated });
@@ -140,7 +151,13 @@ exports.getTasks = async (req, res) => {
     const filter = { project: projectId };
 
     // Support optional filter by assignee
-    if (assignedTo) filter.assignedTo = assignedTo;
+    if (assignedTo) {
+      if (assignedTo === 'unassigned') {
+        filter.$or = [{ assignedTo: { $size: 0 } }, { assignedTo: null }, { assignedTo: { $exists: false } }];
+      } else {
+        filter.assignedTo = assignedTo;
+      }
+    }
 
     if (status) filter.status = status;
     if (priority) filter.priority = priority;
@@ -216,9 +233,13 @@ exports.updateTask = async (req, res) => {
     const task = await Task.findOne({ _id: taskId, project: projectId });
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
 
+    const currentAssigneeIds = Array.isArray(task.assignedTo)
+      ? task.assignedTo.map((u) => (u._id || u).toString())
+      : (task.assignedTo ? [task.assignedTo.toString()] : []);
+
     if (membership.role === 'member') {
       // Members can only update their own tasks' status and checklist
-      if (task.assignedTo?.toString() !== req.user._id.toString()) {
+      if (!currentAssigneeIds.includes(req.user._id.toString())) {
         return res.status(403).json({ success: false, message: 'Access denied' });
       }
       if (Object.keys(req.body).some((k) => k !== 'status' && k !== 'checklist')) {
@@ -232,7 +253,6 @@ exports.updateTask = async (req, res) => {
     const memberFields = ['status', 'checklist'];
     const allowedFields = membership.role === 'admin' ? [...adminFields, 'status'] : memberFields;
 
-    const oldAssignee = task.assignedTo ? task.assignedTo.toString() : null;
     const oldStatus = task.status;
     const oldPriority = task.priority;
 
@@ -241,14 +261,24 @@ exports.updateTask = async (req, res) => {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
     });
 
-    // Validate new assignee is a project member
-    if (updates.assignedTo) {
-      const assigneeMembership = await getMembership(projectId, updates.assignedTo);
-      if (!assigneeMembership) {
-        return res
-          .status(400)
-          .json({ success: false, message: 'Assignee must be a project member' });
+    // Validate new assignees are project members
+    if (updates.assignedTo !== undefined) {
+      let newAssignees = [];
+      if (Array.isArray(updates.assignedTo)) {
+        newAssignees = [...new Set(updates.assignedTo.filter(Boolean).map((id) => id.toString()))];
+      } else if (updates.assignedTo) {
+        newAssignees = [updates.assignedTo.toString()];
       }
+
+      for (const uid of newAssignees) {
+        const assigneeMembership = await getMembership(projectId, uid);
+        if (!assigneeMembership) {
+          return res
+            .status(400)
+            .json({ success: false, message: 'All assignees must be project members' });
+        }
+      }
+      updates.assignedTo = newAssignees;
     }
 
     // ── Audit Trail / System Activity Events ───────────────────────────────────
@@ -264,20 +294,39 @@ exports.updateTask = async (req, res) => {
       });
     }
 
-    if (updates.assignedTo !== undefined && updates.assignedTo !== oldAssignee) {
-      if (updates.assignedTo) {
-        const newAssigneeUser = await User.findById(updates.assignedTo).select('name').lean();
-        task.comments.push({
-          user: req.user._id,
-          text: `reassigned task to ${newAssigneeUser?.name || 'team member'}`,
-          type: 'activity',
-        });
-      } else if (oldAssignee) {
-        task.comments.push({
-          user: req.user._id,
-          text: `unassigned this task`,
-          type: 'activity',
-        });
+    if (updates.assignedTo !== undefined) {
+      const oldIds = currentAssigneeIds;
+      const newIds = updates.assignedTo;
+      const addedIds = newIds.filter((id) => !oldIds.includes(id));
+      const removedIds = oldIds.filter((id) => !newIds.includes(id));
+
+      if (addedIds.length > 0 || removedIds.length > 0) {
+        if (newIds.length === 0 && oldIds.length > 0) {
+          task.comments.push({
+            user: req.user._id,
+            text: `unassigned this task`,
+            type: 'activity',
+          });
+        } else {
+          if (addedIds.length > 0) {
+            const addedUsers = await User.find({ _id: { $in: addedIds } }).select('name').lean();
+            const names = addedUsers.map((u) => u.name).join(', ') || 'team member(s)';
+            task.comments.push({
+              user: req.user._id,
+              text: `assigned task to ${names}`,
+              type: 'activity',
+            });
+          }
+          if (removedIds.length > 0) {
+            const removedUsers = await User.find({ _id: { $in: removedIds } }).select('name').lean();
+            const names = removedUsers.map((u) => u.name).join(', ') || 'team member(s)';
+            task.comments.push({
+              user: req.user._id,
+              text: `unassigned ${names}`,
+              type: 'activity',
+            });
+          }
+        }
       }
     }
 
@@ -292,18 +341,36 @@ exports.updateTask = async (req, res) => {
     Object.assign(task, updates);
     await task.save();
 
-    if (updates.assignedTo && updates.assignedTo !== oldAssignee && updates.assignedTo !== req.user._id.toString()) {
-      require('./notification.controller').createNotification({
-        recipient: updates.assignedTo, sender: req.user._id, type: 'assignment', project: projectId, task: task._id, text: `assigned you to "${task.title}"`
-      });
+    // Assignment notifications to newly assigned users
+    if (updates.assignedTo !== undefined) {
+      const oldIds = currentAssigneeIds;
+      const newIds = updates.assignedTo;
+      const addedIds = newIds.filter((id) => !oldIds.includes(id));
+      for (const assigneeId of addedIds) {
+        if (assigneeId !== req.user._id.toString()) {
+          require('./notification.controller').createNotification({
+            recipient: assigneeId, sender: req.user._id, type: 'assignment', project: projectId, task: task._id, text: `assigned you to "${task.title}"`
+          });
+        }
+      }
     }
+
+    // Status change notification to creator and all assignees
     if (updates.status && updates.status !== oldStatus) {
-      const recipient = task.createdBy.toString() === req.user._id.toString() ? task.assignedTo : task.createdBy;
-      if (recipient && recipient.toString() !== req.user._id.toString()) {
+      const recipients = new Set();
+      if (task.createdBy.toString() !== req.user._id.toString()) {
+        recipients.add(task.createdBy.toString());
+      }
+      const finalAssignees = Array.isArray(task.assignedTo) ? task.assignedTo : (task.assignedTo ? [task.assignedTo] : []);
+      finalAssignees.forEach((a) => {
+        const uid = (a._id || a).toString();
+        if (uid !== req.user._id.toString()) recipients.add(uid);
+      });
+      recipients.forEach((recipient) => {
         require('./notification.controller').createNotification({
           recipient, sender: req.user._id, type: 'status', project: projectId, task: task._id, text: `moved "${task.title}" to ${updates.status}`
         });
-      }
+      });
     }
 
     const populated = await Task.findById(task._id)
@@ -371,12 +438,21 @@ exports.addComment = async (req, res) => {
     await task.populate('comments.user', 'name email avatar');
     const newComment = task.comments[task.comments.length - 1];
 
-    const recipient = task.assignedTo?.toString() === req.user._id.toString() ? task.createdBy : task.assignedTo;
-    if (recipient && recipient.toString() !== req.user._id.toString()) {
+    // Notify creator and all task assignees (except the comment author)
+    const commentRecipients = new Set();
+    if (task.createdBy.toString() !== req.user._id.toString()) {
+      commentRecipients.add(task.createdBy.toString());
+    }
+    const currentAssignees = Array.isArray(task.assignedTo) ? task.assignedTo : (task.assignedTo ? [task.assignedTo] : []);
+    currentAssignees.forEach((a) => {
+      const uid = (a._id || a).toString();
+      if (uid !== req.user._id.toString()) commentRecipients.add(uid);
+    });
+    commentRecipients.forEach((recipient) => {
       require('./notification.controller').createNotification({
         recipient, sender: req.user._id, type: 'comment', project: projectId, task: task._id, text: `left a comment on "${task.title}"`
       });
-    }
+    });
 
     res.status(201).json({ success: true, comment: newComment });
   } catch (err) {

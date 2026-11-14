@@ -72,7 +72,8 @@ exports.getDashboard = async (req, res) => {
       // 3. Tasks per user (admin projects only)
       adminProjectIds.length
         ? Task.aggregate([
-            { $match: { project: { $in: adminProjectIds }, assignedTo: { $ne: null } } },
+            { $match: { project: { $in: adminProjectIds }, assignedTo: { $exists: true, $ne: [] } } },
+            { $unwind: '$assignedTo' },
             { $group: { _id: '$assignedTo', count: { $sum: 1 } } },
             {
               $lookup: {
@@ -251,9 +252,10 @@ exports.getProjectDashboard = async (req, res) => {
         {
           $match: {
             project: require('mongoose').Types.ObjectId(projectId),
-            assignedTo: { $ne: null },
+            assignedTo: { $exists: true, $ne: [] },
           },
         },
+        { $unwind: '$assignedTo' },
         { $group: { _id: '$assignedTo', count: { $sum: 1 } } },
         {
           $lookup: {

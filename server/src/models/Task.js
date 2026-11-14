@@ -68,9 +68,18 @@ const taskSchema = new mongoose.Schema(
       required: true,
     },
     assignedTo: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      default: null,
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+        },
+      ],
+      default: [],
+      set: (val) => {
+        if (!val) return [];
+        if (Array.isArray(val)) return val.filter(Boolean);
+        return [val];
+      },
     },
     status: {
       type: String,
@@ -111,6 +120,17 @@ const taskSchema = new mongoose.Schema(
 taskSchema.virtual('isOverdue').get(function () {
   if (!this.dueDate || this.status === 'done') return false;
   return new Date() > new Date(this.dueDate);
+});
+
+// Normalize legacy single-value assignedTo to an array on init
+taskSchema.pre('init', function (raw) {
+  if (raw) {
+    if (raw.assignedTo === null || raw.assignedTo === undefined) {
+      raw.assignedTo = [];
+    } else if (!Array.isArray(raw.assignedTo)) {
+      raw.assignedTo = [raw.assignedTo];
+    }
+  }
 });
 
 // Auto-set completedAt when status transitions to 'done'

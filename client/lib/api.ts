@@ -73,7 +73,7 @@ export interface Task {
   description: string;
   project: string | { _id: string; name: string; color?: string };
   createdBy: User;
-  assignedTo: User | null;
+  assignedTo: User | User[] | null;
   status: TaskStatus;
   priority: TaskPriority;
   dueDate: string | null;
@@ -194,7 +194,7 @@ export const projectsApi = {
 export interface CreateTaskPayload {
   title: string;
   description?: string;
-  assignedTo?: string;
+  assignedTo?: string | string[];
   priority?: TaskPriority;
   dueDate?: string;
   tags?: string[];
@@ -207,7 +207,7 @@ export interface TaskResponse     { success: boolean; task: Task }
 export interface TaskFilterParams {
   status?: TaskStatus;
   priority?: TaskPriority;
-  assignedTo?: string;
+  assignedTo?: string | string[];
   page?: number;
   limit?: number;
 }

@@ -383,7 +383,7 @@ exports.removeMember = async (req, res) => {
     // Unassign tasks that were assigned to removed user
     await Task.updateMany(
       { project: req.params.id, assignedTo: req.params.userId },
-      { assignedTo: null }
+      { $pull: { assignedTo: req.params.userId } }
     );
 
     res.json({ success: true, message: 'Member removed successfully' });

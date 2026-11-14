@@ -26,7 +26,7 @@ interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   dueDate?: string | null;
-  assignedTo?: TaskUser | null;
+  assignedTo?: TaskUser | TaskUser[] | null;
   /** Joined from project list */
   projectName: string;
   projectId: string;

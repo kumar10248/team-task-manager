@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { projectsApi, tasksApi, meetingsApi, getPersonalizedMeetLink } from '@/lib/api';
-import type { Project, ProjectMember, Task, TaskStatus, TaskPriority, Comment, ChecklistItem, Meeting } from '@/lib/api';
+import type { Project, ProjectMember, Task, TaskStatus, TaskPriority, Comment, ChecklistItem, Meeting, User as ApiUser } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import Modal from '@/components/Model';
@@ -14,7 +14,7 @@ import { triggerConfetti } from '@/lib/confetti';
 import {
   Plus, ArrowLeft, Trash2, UserPlus, Pencil,
   MessageSquare, CornerDownLeft, GripVertical,
-  Search, X, User, CheckSquare, Download, ExternalLink, Clock,
+  Search, X, User, Users, CheckSquare, Download, ExternalLink, Clock,
   Video, Calendar, Copy, Check, ChevronDown, ChevronUp
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -37,6 +37,15 @@ const PRIORITY_COLORS: Record<TaskPriority, string> = {
   urgent: '#f87171',
 };
 
+// ─── Task helper ──────────────────────────────────────────────────────────────
+
+function getTaskAssignees(task: Task): ApiUser[] {
+  if (!task.assignedTo) return [];
+  if (Array.isArray(task.assignedTo)) return task.assignedTo.filter(Boolean) as unknown as ApiUser[];
+  if (typeof task.assignedTo === 'object') return [task.assignedTo as unknown as ApiUser];
+  return [];
+}
+
 // ─── Task form shape ──────────────────────────────────────────────────────────
 
 interface TaskFormState {
@@ -44,7 +53,7 @@ interface TaskFormState {
   description: string;
   priority: TaskPriority;
   dueDate: string;
-  assignedTo: string;
+  assignedTo: string[];
   status: TaskStatus;
   tags: string[];
   checklist: ChecklistItem[];
@@ -52,7 +61,7 @@ interface TaskFormState {
 
 const EMPTY_TASK_FORM: TaskFormState = {
   title: '', description: '', priority: 'medium',
-  dueDate: '', assignedTo: '', status: 'todo',
+  dueDate: '', assignedTo: [], status: 'todo',
   tags: [], checklist: [],
 };
 
@@ -89,7 +98,8 @@ function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelet
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const isOverdue = !!task.dueDate && task.status !== 'done' && new Date() > new Date(task.dueDate);
   const pColor = PRIORITY_COLORS[task.priority] || 'var(--accent-primary)';
-  const isAssignedToMe = currentUserId ? task.assignedTo?._id === currentUserId : true;
+  const assignees = getTaskAssignees(task);
+  const isAssignedToMe = currentUserId ? (assignees.length === 0 || assignees.some((u) => u._id === currentUserId)) : true;
   const canUpdateStatus = myRole === 'admin' || isAssignedToMe;
 
   return (
@@ -314,20 +324,48 @@ function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelet
         })()
       )}
 
-      {/* Assignee + due date */}
+      {/* Assignees + due date */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        {task.assignedTo && (
+        {assignees.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{
-              width: 24, height: 24, borderRadius: '50%',
-              background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 11, color: '#fff', fontWeight: 600, fontFamily: 'Outfit, sans-serif'
-            }}>
-              {task.assignedTo.name?.[0]?.toUpperCase()}
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              {assignees.slice(0, 3).map((u, i) => (
+                <div
+                  key={u._id || i}
+                  title={u.name}
+                  style={{
+                    width: 24, height: 24, borderRadius: '50%',
+                    background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 11, color: '#fff', fontWeight: 600, fontFamily: 'Outfit, sans-serif',
+                    marginLeft: i > 0 ? -8 : 0,
+                    border: '2px solid rgba(15, 23, 42, 0.9)',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                  }}
+                >
+                  {u.name?.[0]?.toUpperCase()}
+                </div>
+              ))}
+              {assignees.length > 3 && (
+                <div
+                  title={assignees.slice(3).map((u) => u.name).join(', ')}
+                  style={{
+                    width: 24, height: 24, borderRadius: '50%',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 10, color: 'var(--text-secondary)', fontWeight: 600, fontFamily: 'Outfit, sans-serif',
+                    marginLeft: -8,
+                    border: '2px solid rgba(15, 23, 42, 0.9)',
+                  }}
+                >
+                  +{assignees.length - 3}
+                </div>
+              )}
             </div>
             <span style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)' }}>
-              {task.assignedTo.name?.split(' ')[0]}
+              {assignees.length === 1
+                ? assignees[0].name.split(' ')[0]
+                : `${assignees.length} assigned`}
             </span>
           </div>
         )}
@@ -580,8 +618,9 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const commentsEndRef = useRef<HTMLDivElement>(null);
 
+  const assignees = getTaskAssignees(task);
   const isAssignedToMe = currentUserId
-    ? (typeof task.assignedTo === 'object' && task.assignedTo ? task.assignedTo._id === currentUserId : task.assignedTo === currentUserId)
+    ? (assignees.length === 0 || assignees.some((u) => u._id === currentUserId))
     : true;
   const canManageChecklist = myRole === 'admin' || isAssignedToMe;
 
@@ -694,12 +733,13 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
       }
     }
 
-    if (rawId && task.assignedTo?._id === rawId && task.assignedTo.name) {
+    const assignedUser = assignees.find((u) => u._id === rawId);
+    if (assignedUser && assignedUser.name) {
       return {
-        id: task.assignedTo._id,
-        name: task.assignedTo.name,
+        id: assignedUser._id,
+        name: assignedUser.name,
         isMe: false,
-        initial: (task.assignedTo.name[0] || 'U').toUpperCase(),
+        initial: (assignedUser.name[0] || 'U').toUpperCase(),
       };
     }
 
@@ -816,11 +856,15 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
         <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'Outfit, sans-serif' }}>
           {task.status === 'done' ? 'Completed task' : (task.status === 'in_progress' ? 'In Progress' : 'To Do')}
         </span>
-        {task.assignedTo && (
-          <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif', marginLeft: 6 }}>
-            • Assigned to {task.assignedTo.name}
-          </span>
-        )}
+        {(() => {
+          const assignees = getTaskAssignees(task);
+          if (assignees.length === 0) return null;
+          return (
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif', marginLeft: 6 }}>
+              • Assigned to {assignees.map((u) => u.name).join(', ')}
+            </span>
+          );
+        })()}
         <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
           {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
         </span>
@@ -1456,7 +1500,7 @@ export default function ProjectDetailPage() {
       description: task.description ?? '',
       priority:    task.priority,
       dueDate:     task.dueDate ? task.dueDate.slice(0, 10) : '',
-      assignedTo:  typeof task.assignedTo === 'object' && task.assignedTo ? task.assignedTo._id : '',
+      assignedTo:  getTaskAssignees(task).map((u) => u._id),
       status:      task.status,
       tags:        task.tags ? [...task.tags] : [],
       checklist:   task.checklist ? task.checklist.map((c) => ({ ...c })) : [],
@@ -1500,16 +1544,18 @@ export default function ProjectDetailPage() {
       if (!matchTitle && !matchDesc) return false;
     }
     if (onlyMyTasks) {
-      const isAssignedToMe = user?._id ? t.assignedTo?._id === user._id : false;
+      const assignees = getTaskAssignees(t);
+      const isAssignedToMe = user?._id ? assignees.some((u) => u._id === user._id) : false;
       if (!isAssignedToMe) return false;
     }
     if (filterPriority && t.priority !== filterPriority) {
       return false;
     }
     if (filterAssignee) {
+      const assignees = getTaskAssignees(t);
       if (filterAssignee === 'unassigned') {
-        if (t.assignedTo) return false;
-      } else if (t.assignedTo?._id !== filterAssignee) {
+        if (assignees.length > 0) return false;
+      } else if (!assignees.some((u) => u._id === filterAssignee)) {
         return false;
       }
     }
@@ -1592,8 +1638,9 @@ export default function ProjectDetailPage() {
     };
 
     const rows = tasks.map((t) => {
-      const assigneeName = typeof t.assignedTo === 'object' && t.assignedTo ? t.assignedTo.name : 'Unassigned';
-      const assigneeEmail = typeof t.assignedTo === 'object' && t.assignedTo ? t.assignedTo.email : 'N/A';
+      const assignees = getTaskAssignees(t);
+      const assigneeName = assignees.length > 0 ? assignees.map((u) => u.name).join('; ') : 'Unassigned';
+      const assigneeEmail = assignees.length > 0 ? assignees.map((u) => u.email).join('; ') : 'N/A';
       const dueDate = t.dueDate ? new Date(t.dueDate).toLocaleDateString() : 'None';
       const checklistDone = t.checklist ? t.checklist.filter((c) => c.completed).length : 0;
       const checklistTotal = t.checklist ? t.checklist.length : 0;
@@ -1635,7 +1682,7 @@ export default function ProjectDetailPage() {
     setSaving(true);
     const payload = {
       ...taskForm,
-      assignedTo: taskForm.assignedTo || undefined,
+      assignedTo: taskForm.assignedTo.length > 0 ? taskForm.assignedTo : undefined,
       dueDate:    taskForm.dueDate    || undefined,
     };
     try {
@@ -1843,13 +1890,216 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Assignee */}
+      {/* Assignees (Multi-Member Selector) */}
       <div style={{ marginBottom: 20 }}>
-        <FieldLabel>Assign To</FieldLabel>
-        <select value={taskForm.assignedTo} onChange={(e) => setTaskForm({ ...taskForm, assignedTo: e.target.value })}>
-          <option value="">Unassigned</option>
-          {members.map((m) => <option key={m.user._id} value={m.user._id}>{m.user.name}</option>)}
-        </select>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <FieldLabel>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Users size={13} color="var(--accent-primary)" />
+              Assign Members ({taskForm.assignedTo.length} selected)
+            </span>
+          </FieldLabel>
+          <div style={{ display: 'flex', gap: 10 }}>
+            {taskForm.assignedTo.length < members.length && (
+              <button
+                type="button"
+                onClick={() => setTaskForm((prev) => ({ ...prev, assignedTo: members.map((m) => m.user._id) }))}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: 11,
+                  fontFamily: 'Outfit, sans-serif',
+                  color: 'var(--accent-primary)',
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
+              >
+                Select All
+              </button>
+            )}
+            {taskForm.assignedTo.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setTaskForm((prev) => ({ ...prev, assignedTo: [] }))}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: 11,
+                  fontFamily: 'Outfit, sans-serif',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Selected chips */}
+        {taskForm.assignedTo.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+            {taskForm.assignedTo.map((userId) => {
+              const member = members.find((m) => m.user._id === userId);
+              const name = member?.user.name || 'Member';
+              return (
+                <span
+                  key={userId}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '3px 8px 3px 6px',
+                    borderRadius: 20,
+                    background: 'rgba(129, 140, 248, 0.15)',
+                    border: '1px solid rgba(129, 140, 248, 0.3)',
+                    color: 'var(--text-primary)',
+                    fontSize: 12,
+                    fontFamily: 'Outfit, sans-serif',
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 18,
+                      height: 18,
+                      borderRadius: '50%',
+                      background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: '#fff',
+                    }}
+                  >
+                    {name[0]?.toUpperCase()}
+                  </span>
+                  {name}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setTaskForm((prev) => ({
+                        ...prev,
+                        assignedTo: prev.assignedTo.filter((id) => id !== userId),
+                      }))
+                    }
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                      fontSize: 14,
+                      lineHeight: 1,
+                      padding: 0,
+                      marginLeft: 2,
+                    }}
+                    title="Remove"
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Members Selection List */}
+        <div
+          style={{
+            maxHeight: 160,
+            overflowY: 'auto',
+            background: 'rgba(255, 255, 255, 0.02)',
+            border: '1px solid var(--bg-border)',
+            borderRadius: 8,
+            padding: 6,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}
+        >
+          {members.length === 0 ? (
+            <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
+              No members in this project yet
+            </div>
+          ) : (
+            members.map((m) => {
+              const isSelected = taskForm.assignedTo.includes(m.user._id);
+              return (
+                <label
+                  key={m.user._id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    background: isSelected ? 'rgba(129, 140, 248, 0.1)' : 'transparent',
+                    border: isSelected ? '1px solid rgba(129, 140, 248, 0.25)' : '1px solid transparent',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => {
+                        setTaskForm((prev) => ({
+                          ...prev,
+                          assignedTo: isSelected
+                            ? prev.assignedTo.filter((id) => id !== m.user._id)
+                            : [...prev.assignedTo, m.user._id],
+                        }));
+                      }}
+                      style={{ width: 14, height: 14, cursor: 'pointer', margin: 0, accentColor: 'var(--accent-primary)' }}
+                    />
+                    <div
+                      style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: '50%',
+                        background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: '#fff',
+                      }}
+                    >
+                      {m.user.name?.[0]?.toUpperCase()}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 13, fontFamily: 'Outfit, sans-serif', color: 'var(--text-primary)', fontWeight: 500 }}>
+                        {m.user.name}
+                        {m.user._id === user?._id && (
+                          <span style={{ fontSize: 10, color: 'var(--accent-primary)', marginLeft: 6, fontWeight: 400 }}>
+                            (You)
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{m.user.email}</div>
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      textTransform: 'uppercase',
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      color: 'var(--text-secondary)',
+                      fontFamily: 'Outfit, sans-serif',
+                    }}
+                  >
+                    {m.role}
+                  </span>
+                </label>
+              );
+            })
+          )}
+        </div>
       </div>
 
       {/* Tags / Categories */}
@@ -2317,7 +2567,8 @@ export default function ProjectDetailPage() {
                     </tr>
                   ) : filteredTasks.map((t) => {
                     const isOverdue = !!t.dueDate && t.status !== 'done' && new Date() > new Date(t.dueDate);
-                    const isAssignedToMe = user?._id ? t.assignedTo?._id === user._id : true;
+                    const assignees = getTaskAssignees(t);
+                    const isAssignedToMe = user?._id ? (assignees.length === 0 || assignees.some((u) => u._id === user._id)) : true;
                     const canUpdateStatus = myRole === 'admin' || isAssignedToMe;
                     return (
                       <tr key={t._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)', transition: 'background 0.2s' }}
@@ -2390,7 +2641,46 @@ export default function ProjectDetailPage() {
                         </td>
                         <td style={{ padding: '16px 20px' }}><span className={`badge badge-${t.priority}`}>{t.priority}</span></td>
                         <td style={{ padding: '16px 20px', fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'Outfit, sans-serif' }}>
-                          {t.assignedTo?.name ?? '—'}
+                          {(() => {
+                            if (assignees.length === 0) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
+                            if (assignees.length === 1) return assignees[0].name;
+                            return (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} title={assignees.map((u) => u.name).join(', ')}>
+                                <div style={{ display: 'flex', alignItems: 'center' }}>
+                                  {assignees.slice(0, 3).map((u, i) => (
+                                    <div
+                                      key={u._id || i}
+                                      style={{
+                                        width: 20, height: 20, borderRadius: '50%',
+                                        background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        fontSize: 9, color: '#fff', fontWeight: 600,
+                                        marginLeft: i > 0 ? -6 : 0,
+                                        border: '1.5px solid rgba(15, 23, 42, 0.9)',
+                                      }}
+                                    >
+                                      {u.name?.[0]?.toUpperCase()}
+                                    </div>
+                                  ))}
+                                  {assignees.length > 3 && (
+                                    <div
+                                      style={{
+                                        width: 20, height: 20, borderRadius: '50%',
+                                        background: 'rgba(255, 255, 255, 0.1)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        fontSize: 8, color: 'var(--text-secondary)', fontWeight: 600,
+                                        marginLeft: -6,
+                                        border: '1.5px solid rgba(15, 23, 42, 0.9)',
+                                      }}
+                                    >
+                                      +{assignees.length - 3}
+                                    </div>
+                                  )}
+                                </div>
+                                <span>{assignees.length} assigned</span>
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td style={{ padding: '16px 20px', fontSize: 13, fontFamily: 'Outfit, sans-serif', fontWeight: 500, color: isOverdue ? '#f87171' : 'var(--text-muted)' }}>
                           {t.dueDate ? new Date(t.dueDate).toLocaleDateString() : '—'}
