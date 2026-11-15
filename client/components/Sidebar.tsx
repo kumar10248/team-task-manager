@@ -70,12 +70,31 @@ export default function Sidebar() {
       <aside style={{ width:240, height:'100vh', position:'sticky', top:0, background:'rgba(255,255,255,0.01)', backdropFilter:'blur(20px)', borderRight:'1px solid var(--bg-border)', display:'flex', flexDirection:'column', flexShrink:0, zIndex:50 }}>
         {/* Logo */}
         <div style={{ padding:'32px 24px 16px' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <Link
+            href="/"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              textDecoration: 'none',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.opacity = '0.85';
+              e.currentTarget.style.transform = 'scale(1.02)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.opacity = '1';
+              e.currentTarget.style.transform = 'scale(1)';
+            }}
+            title="Go to TaskForge Home"
+          >
             <div style={{ width:32, height:32, background:'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 0 15px var(--accent-glow)' }}>
               <Zap size={16} color="#fff" fill="#fff" />
             </div>
             <span style={{ fontFamily:'Fraunces, serif', fontSize:20, fontWeight:500, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>TaskForge</span>
-          </div>
+          </Link>
         </div>
 
         {/* ⌘K Command Palette Quick Launcher */}

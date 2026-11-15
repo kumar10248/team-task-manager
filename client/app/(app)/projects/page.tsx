@@ -546,7 +546,7 @@ export default function ProjectsPage(): ReactElement {
               )}
             </div>
           ) : (
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(320px, 1fr))', gap: 24 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(320px, 1fr))', gap: 24, width: '100%' }}>
               {filteredProjects.map((p) => (
                 <ProjectCard
                   key={p._id}

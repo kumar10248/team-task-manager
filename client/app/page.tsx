@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../lib/auth-context';
-import { Zap, CheckCircle2, Users, BarChart3, ArrowRight, Layers, Shield, Clock, LucideIcon } from 'lucide-react';
+import { Zap, CheckCircle2, Users, BarChart3, ArrowRight, Layers, Shield, Clock, LucideIcon, Check, Sparkles, CreditCard } from 'lucide-react';
 
 interface Feature { icon: LucideIcon; title: string; desc: string }
 
@@ -54,13 +54,62 @@ export default function HomePage() {
         borderBottom: scrolled ? '1px solid var(--bg-border)' : '1px solid transparent',
         transition:'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
       }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+        <Link
+          href="/"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            textDecoration: 'none',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.opacity = '0.85';
+            e.currentTarget.style.transform = 'scale(1.02)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.opacity = '1';
+            e.currentTarget.style.transform = 'scale(1)';
+          }}
+          title="TaskForge Home"
+        >
           <div style={{ width:32, height:32, background:'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 0 15px var(--accent-glow)' }}>
             <Zap size={16} color="#fff" fill="#fff" />
           </div>
           <span style={{ fontFamily:'Fraunces, serif', fontSize:20, fontWeight:600, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>TaskForge</span>
-        </div>
-        <div style={{ display:'flex', alignItems:'center', gap:16 }}>
+        </Link>
+        <div style={{ display:'flex', alignItems:'center', gap:20 }}>
+          <a
+            href="#features"
+            style={{
+              fontFamily: 'Outfit, sans-serif',
+              fontSize: 14,
+              color: 'var(--text-secondary)',
+              textDecoration: 'none',
+              transition: 'color 0.2s',
+              fontWeight: 500,
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-primary)')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-secondary)')}
+          >
+            Features
+          </a>
+          <a
+            href="#pricing"
+            style={{
+              fontFamily: 'Outfit, sans-serif',
+              fontSize: 14,
+              color: 'var(--accent-primary)',
+              textDecoration: 'none',
+              transition: 'all 0.2s',
+              fontWeight: 600,
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-primary)')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--accent-primary)')}
+          >
+            Pricing
+          </a>
           {user ? (
             <Link href="/dashboard" style={{ textDecoration:'none' }}>
               <button className="btn-primary" style={{ padding:'8px 20px' }}>Go to Dashboard <ArrowRight size={14} /></button>
@@ -192,7 +241,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Features ── */}
-      <section style={{ padding:'80px 48px 120px', maxWidth:1200, margin:'0 auto', position:'relative' }}>
+      <section id="features" style={{ padding:'80px 48px 100px', maxWidth:1200, margin:'0 auto', position:'relative' }}>
         <div style={{ textAlign:'center', marginBottom:80 }}>
           <p style={{ fontFamily:'Outfit, sans-serif', fontSize:13, fontWeight:500, color:'var(--accent-primary)', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:16 }}>Powerful Features</p>
           <h2 style={{ fontFamily:'Fraunces, serif', fontSize:'clamp(32px, 4vw, 56px)', fontWeight:400, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>Crafted for perfection.</h2>
@@ -207,6 +256,273 @@ export default function HomePage() {
               <p style={{ fontFamily:'Outfit, sans-serif', fontSize:15, color:'var(--text-secondary)', lineHeight:1.6, fontWeight:300 }}>{desc}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* ── Pricing & Subscription Plans ── */}
+      <section id="pricing" style={{ padding:'80px 24px 120px', maxWidth:1200, margin:'0 auto', position:'relative' }}>
+        <div style={{ textAlign:'center', marginBottom:64 }}>
+          <div style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(129, 140, 248, 0.1)', border:'1px solid rgba(129, 140, 248, 0.25)', borderRadius:100, padding:'6px 18px', marginBottom:16 }}>
+            <Sparkles size={14} color="var(--accent-primary)" />
+            <span style={{ fontFamily:'Outfit, sans-serif', fontSize:12, fontWeight:600, letterSpacing:'0.08em', color:'var(--accent-primary)', textTransform:'uppercase' }}>
+              Transparent Pricing
+            </span>
+          </div>
+          <h2 style={{ fontFamily:'Fraunces, serif', fontSize:'clamp(32px, 4vw, 56px)', fontWeight:400, color:'var(--text-primary)', letterSpacing:'-0.02em', marginBottom:16 }}>
+            Simple plans for ambitious teams.
+          </h2>
+          <p style={{ fontFamily:'Outfit, sans-serif', fontSize:16, color:'var(--text-secondary)', maxWidth:580, margin:'0 auto', lineHeight:1.6, fontWeight:300 }}>
+            Every plan includes our 14-day free trial. Instant setup with Razorpay — UPI, Cards, and Netbanking supported.
+          </p>
+        </div>
+
+        {/* 3 Tier Cards Grid */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(310px, 1fr))', gap:24, alignItems:'stretch' }}>
+          
+          {/* Card 1: 14-Day Free Trial */}
+          <div className="glass-panel" style={{
+            padding:'36px 30px',
+            borderRadius:20,
+            display:'flex',
+            flexDirection:'column',
+            position:'relative',
+            transition:'all 0.3s ease',
+            border:'1px solid rgba(255,255,255,0.08)',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}
+          >
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+              <span style={{ fontSize:13, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.08em', color:'var(--text-muted)', fontFamily:'Outfit, sans-serif' }}>
+                Starter
+              </span>
+              <span style={{ fontSize:11, padding:'3px 10px', borderRadius:20, background:'rgba(255,255,255,0.06)', color:'var(--text-secondary)', border:'1px solid rgba(255,255,255,0.1)', fontWeight:500 }}>
+                14-Day Free
+              </span>
+            </div>
+
+            <div style={{ marginBottom:20 }}>
+              <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
+                <span style={{ fontFamily:'Fraunces, serif', fontSize:44, fontWeight:400, color:'var(--text-primary)' }}>₹0</span>
+                <span style={{ fontFamily:'Outfit, sans-serif', fontSize:14, color:'var(--text-muted)' }}>/ 14 days</span>
+              </div>
+              <p style={{ fontFamily:'Outfit, sans-serif', fontSize:13, color:'var(--text-secondary)', marginTop:8, lineHeight:1.5 }}>
+                Full access to test drive TaskForge with your core team. No credit card required.
+              </p>
+            </div>
+
+            <div style={{ borderTop:'1px solid rgba(255,255,255,0.06)', paddingTop:22, marginBottom:32, flex:1 }}>
+              <div style={{ fontSize:11, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--text-muted)', fontWeight:600, marginBottom:14 }}>
+                Included in trial:
+              </div>
+              <ul style={{ listStyle:'none', padding:0, margin:0, display:'flex', flexDirection:'column', gap:12 }}>
+                {[
+                  '14 Days Full Workspace Access',
+                  'Up to 3 Active Projects',
+                  'Up to 5 Team Members',
+                  'Kanban Boards & Due Dates',
+                  'Team Attendance Clock-In/Out',
+                  'Video Meetings (MiroTalk & Jitsi)',
+                  'No Credit Card Required',
+                ].map((item, idx) => (
+                  <li key={idx} style={{ display:'flex', alignItems:'center', gap:10, fontSize:13, color:'var(--text-secondary)', fontFamily:'Outfit, sans-serif' }}>
+                    <div style={{ width:18, height:18, borderRadius:'50%', background:'rgba(255,255,255,0.08)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                      <Check size={11} color="var(--text-primary)" />
+                    </div>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <Link href={user ? '/dashboard' : '/signup'} style={{ textDecoration:'none' }}>
+              <button className="btn-ghost" style={{ width:'100%', justifyContent:'center', padding:'12px 20px', fontSize:14 }}>
+                {user ? 'Go to Dashboard' : 'Start 14-Day Free Trial'}
+              </button>
+            </Link>
+          </div>
+
+          {/* Card 2: Standard Plan (2,000 / mo) */}
+          <div className="glass-panel" style={{
+            padding:'36px 30px',
+            borderRadius:20,
+            display:'flex',
+            flexDirection:'column',
+            position:'relative',
+            transition:'all 0.3s ease',
+            border:'1.5px solid var(--accent-primary)',
+            boxShadow:'0 0 35px rgba(129, 140, 248, 0.25)',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = '0 0 45px rgba(129, 140, 248, 0.4)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 0 35px rgba(129, 140, 248, 0.25)'; }}
+          >
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+              <span style={{ fontSize:13, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.08em', color:'var(--accent-primary)', fontFamily:'Outfit, sans-serif' }}>
+                Standard Tier
+              </span>
+              <span style={{ fontSize:11, padding:'3px 10px', borderRadius:20, background:'rgba(129, 140, 248, 0.2)', color:'#c7d2fe', border:'1px solid rgba(129, 140, 248, 0.4)', fontWeight:600 }}>
+                Most Popular
+              </span>
+            </div>
+
+            <div style={{ marginBottom:20 }}>
+              <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
+                <span style={{ fontFamily:'Fraunces, serif', fontSize:44, fontWeight:400, color:'var(--text-primary)' }}>₹2,000</span>
+                <span style={{ fontFamily:'Outfit, sans-serif', fontSize:14, color:'var(--text-muted)' }}>/ month</span>
+              </div>
+              <p style={{ fontFamily:'Outfit, sans-serif', fontSize:13, color:'var(--text-secondary)', marginTop:8, lineHeight:1.5 }}>
+                Ideal for growing teams needing full project tracking, subtasks, custom taglines & video meetings.
+              </p>
+            </div>
+
+            <div style={{ borderTop:'1px solid rgba(255,255,255,0.06)', paddingTop:22, marginBottom:32, flex:1 }}>
+              <div style={{ fontSize:11, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--accent-primary)', fontWeight:600, marginBottom:14 }}>
+                Everything in Starter, plus:
+              </div>
+              <ul style={{ listStyle:'none', padding:0, margin:0, display:'flex', flexDirection:'column', gap:12 }}>
+                {[
+                  'Up to 15 Active Projects',
+                  'Up to 25 Team Members',
+                  'Drag-and-Drop Kanban Boards',
+                  'Subtask Checklists & Progress Bar',
+                  'Project Custom Taglines with DB sync',
+                  'Video Meetings (HD WebRTC & Jitsi)',
+                  'Shift & Attendance Clock-In/Out logs',
+                  'CSV Task & Shift Exports',
+                  'Priority Email Support',
+                ].map((item, idx) => (
+                  <li key={idx} style={{ display:'flex', alignItems:'center', gap:10, fontSize:13, color:'var(--text-secondary)', fontFamily:'Outfit, sans-serif' }}>
+                    <div style={{ width:18, height:18, borderRadius:'50%', background:'rgba(129, 140, 248, 0.15)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                      <Check size={11} color="var(--accent-primary)" />
+                    </div>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <Link href={user ? '/billing' : '/signup'} style={{ textDecoration:'none' }}>
+              <button className="btn-primary" style={{ width:'100%', justifyContent:'center', padding:'12px 20px', fontSize:14, boxShadow:'0 0 20px rgba(129, 140, 248, 0.4)' }}>
+                {user ? 'Upgrade to Standard' : 'Get Started with Standard'} <ArrowRight size={15} />
+              </button>
+            </Link>
+          </div>
+
+          {/* Card 3: Pro Plan (3,000 / mo) */}
+          <div className="glass-panel" style={{
+            padding:'36px 30px',
+            borderRadius:20,
+            display:'flex',
+            flexDirection:'column',
+            position:'relative',
+            transition:'all 0.3s ease',
+            border:'1.5px solid rgba(192, 132, 252, 0.4)',
+            boxShadow:'0 0 35px rgba(192, 132, 252, 0.2)',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = '0 0 50px rgba(192, 132, 252, 0.4)'; e.currentTarget.style.borderColor = '#c084fc'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 0 35px rgba(192, 132, 252, 0.2)'; e.currentTarget.style.borderColor = 'rgba(192, 132, 252, 0.4)'; }}
+          >
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+              <span style={{ fontSize:13, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.08em', color:'#c084fc', fontFamily:'Outfit, sans-serif' }}>
+                Pro / Enterprise
+              </span>
+              <span style={{ fontSize:11, padding:'3px 10px', borderRadius:20, background:'linear-gradient(135deg, rgba(129, 140, 248, 0.25), rgba(192, 132, 252, 0.25))', color:'#f0abfc', border:'1px solid rgba(192, 132, 252, 0.5)', fontWeight:600 }}>
+                ★ Best Value
+              </span>
+            </div>
+
+            <div style={{ marginBottom:20 }}>
+              <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
+                <span style={{ fontFamily:'Fraunces, serif', fontSize:44, fontWeight:400, color:'var(--text-primary)' }}>₹3,000</span>
+                <span style={{ fontFamily:'Outfit, sans-serif', fontSize:14, color:'var(--text-muted)' }}>/ month</span>
+              </div>
+              <p style={{ fontFamily:'Outfit, sans-serif', fontSize:13, color:'var(--text-secondary)', marginTop:8, lineHeight:1.5 }}>
+                For high-velocity organizations requiring unlimited capacity, multi-member tasks & VIP support.
+              </p>
+            </div>
+
+            <div style={{ borderTop:'1px solid rgba(255,255,255,0.06)', paddingTop:22, marginBottom:32, flex:1 }}>
+              <div style={{ fontSize:11, textTransform:'uppercase', letterSpacing:'0.06em', color:'#c084fc', fontWeight:600, marginBottom:14 }}>
+                Everything in Standard, plus:
+              </div>
+              <ul style={{ listStyle:'none', padding:0, margin:0, display:'flex', flexDirection:'column', gap:12 }}>
+                {[
+                  'Unlimited Active Projects (No Limits)',
+                  'Unlimited Team Members & Collaborators',
+                  'Multi-Member Task Assignment & Co-owners',
+                  '14-Hour Shift Cap & Real-time Attendance',
+                  'Meeting Agendas & Jitsi Conference Sync',
+                  'Subtask Progress Tracking & Instant Analytics',
+                  'Cloudinary AI Face-Crop Avatars',
+                  'Priority 24/7 VIP Customer Support',
+                  'Early Access to Upcoming Features & APIs',
+                ].map((item, idx) => (
+                  <li key={idx} style={{ display:'flex', alignItems:'center', gap:10, fontSize:13, color:'var(--text-primary)', fontFamily:'Outfit, sans-serif' }}>
+                    <div style={{ width:18, height:18, borderRadius:'50%', background:'rgba(192, 132, 252, 0.2)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                      <Check size={11} color="#c084fc" />
+                    </div>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <Link href={user ? '/billing' : '/signup'} style={{ textDecoration:'none' }}>
+              <button
+                style={{
+                  width:'100%',
+                  padding:'12px 20px',
+                  borderRadius:8,
+                  border:'none',
+                  background:'linear-gradient(135deg, #a855f7, #ec4899)',
+                  color:'#fff',
+                  fontWeight:600,
+                  fontSize:14,
+                  fontFamily:'Outfit, sans-serif',
+                  cursor:'pointer',
+                  display:'flex',
+                  alignItems:'center',
+                  justifyContent: 'center',
+                  gap:8,
+                  boxShadow:'0 0 25px rgba(168, 85, 247, 0.4)',
+                  transition:'all 0.2s',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.filter = 'brightness(1.1)')}
+                onMouseLeave={(e) => (e.currentTarget.style.filter = 'none')}
+              >
+                {user ? 'Upgrade to Pro' : 'Get Started with Pro'} <ArrowRight size={15} />
+              </button>
+            </Link>
+          </div>
+
+        </div>
+
+        {/* Razorpay Trust Badge & Coverage Note */}
+        <div style={{
+          marginTop:40,
+          padding:'16px 24px',
+          borderRadius:14,
+          background:'rgba(255,255,255,0.02)',
+          border:'1px solid rgba(255,255,255,0.05)',
+          display:'flex',
+          alignItems:'center',
+          justifyContent:'center',
+          flexWrap:'wrap',
+          gap:24,
+          textAlign:'center',
+        }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, color:'var(--text-secondary)', fontFamily:'Outfit, sans-serif' }}>
+            <Shield size={16} color="var(--accent-primary)" />
+            <span>Secure Checkout powered by <strong>Razorpay</strong></span>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, color:'var(--text-secondary)', fontFamily:'Outfit, sans-serif' }}>
+            <CreditCard size={16} color="#c084fc" />
+            <span>UPI, Credit/Debit Cards, Netbanking</span>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, color:'var(--text-secondary)', fontFamily:'Outfit, sans-serif' }}>
+            <Users size={16} color="#4ade80" />
+            <span>Invited team members are <strong>100% free</strong></span>
+          </div>
         </div>
       </section>
 
@@ -249,14 +565,14 @@ export default function HomePage() {
 
       {/* ── Footer ── */}
       <footer style={{ borderTop:'1px solid var(--bg-border)', padding:'40px 48px', display:'flex', alignItems:'center', justifyContent:'space-between', background:'rgba(0,0,0,0.2)' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+        <Link href="/" style={{ display:'flex', alignItems:'center', gap:10, textDecoration:'none', cursor:'pointer' }} title="TaskForge Home">
           <div style={{ width:24, height:24, background:'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center' }}>
             <Zap size={12} color="#fff" fill="#fff" />
           </div>
           <span style={{ fontFamily:'Fraunces, serif', fontSize:16, color:'var(--text-secondary)', letterSpacing:'-0.02em' }}>TaskForge</span>
-        </div>
-        <div style={{ display:'flex', gap:32 }}>
-          {([['Login','/login'],['Sign up','/signup'],['Dashboard','/dashboard']] as const).map(([label, href]) => (
+        </Link>
+        <div style={{ display:'flex', gap:32, flexWrap:'wrap' }}>
+          {([['Features', '#features'], ['Pricing', '#pricing'], ['Login', '/login'], ['Sign up', '/signup'], ['Dashboard', '/dashboard']] as const).map(([label, href]) => (
             <Link key={label} href={href}
               style={{ fontFamily:'Outfit, sans-serif', fontSize:13, color:'var(--text-muted)', textDecoration:'none', transition:'color 0.2s', fontWeight:400 }}
               onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color='var(--text-primary)')}

@@ -42,9 +42,11 @@ export default function LoginPage() {
     return (
       <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#050505', padding:16 }}>
         <div style={{ textAlign:'center' }}>
-          <div style={{ width:56, height:56, background:'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', borderRadius:16, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px', boxShadow:'0 0 30px rgba(129, 140, 248, 0.4)' }}>
-            <Zap size={28} color="#ffffff" fill="#ffffff" />
-          </div>
+          <Link href="/" style={{ textDecoration: 'none', display: 'inline-block' }} title="TaskForge Home">
+            <div style={{ width:56, height:56, background:'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', borderRadius:16, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px', boxShadow:'0 0 30px rgba(129, 140, 248, 0.4)', cursor: 'pointer' }}>
+              <Zap size={28} color="#ffffff" fill="#ffffff" />
+            </div>
+          </Link>
           <h2 style={{ fontFamily:'Fraunces, serif', fontSize:24, color:'var(--text-primary)', marginBottom:8 }}>
             {user ? 'Redirecting to Dashboard…' : 'Validating session…'}
           </h2>
@@ -67,9 +69,11 @@ export default function LoginPage() {
 
       <div className="animate-slide-up" style={{ width:'100%', maxWidth:440, position: 'relative', zIndex: 10 }}>
         <div style={{ textAlign:'center', marginBottom:40 }}>
-          <div style={{ width:56, height:56, background:'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', borderRadius:16, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px', boxShadow:'0 0 30px rgba(129, 140, 248, 0.4)' }}>
-            <Zap size={28} color="#ffffff" fill="#ffffff" />
-          </div>
+          <Link href="/" style={{ textDecoration: 'none', display: 'inline-block' }} title="TaskForge Home">
+            <div style={{ width:56, height:56, background:'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', borderRadius:16, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px', boxShadow:'0 0 30px rgba(129, 140, 248, 0.4)', cursor: 'pointer' }}>
+              <Zap size={28} color="#ffffff" fill="#ffffff" />
+            </div>
+          </Link>
           <h1 style={{ fontFamily:'Fraunces, serif', fontSize:36, fontWeight:400, color:'var(--text-primary)', marginBottom:8, letterSpacing:'-0.01em' }}>Welcome back</h1>
           <p style={{ color:'var(--text-secondary)', fontSize:14, fontFamily:'Outfit, sans-serif' }}>Sign in to continue to TaskForge</p>
         </div>
