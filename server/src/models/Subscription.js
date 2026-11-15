@@ -7,7 +7,9 @@ const paymentHistorySchema = new mongoose.Schema(
     amount: { type: Number, required: true },
     plan: { type: String, required: true },
     paidAt: { type: Date, default: Date.now },
-    method: { type: String, default: 'razorpay' },
+    gateway: { type: String, default: 'Razorpay' },
+    method: { type: String, default: 'UPI' },
+    paymentMethod: { type: String, default: 'UPI' },
   },
   { _id: false }
 );

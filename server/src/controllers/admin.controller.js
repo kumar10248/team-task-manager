@@ -60,7 +60,13 @@ exports.getMetrics = async (req, res) => {
       if (Array.isArray(sub.history)) {
         sub.history.forEach((h) => {
           allHistory.push({
-            ...h,
+            paymentId: h.paymentId,
+            orderId: h.orderId,
+            amount: h.amount,
+            plan: h.plan,
+            paidAt: h.paidAt,
+            gateway: h.gateway || 'Razorpay',
+            method: (h.paymentMethod || h.method || 'UPI').toUpperCase(),
             userId: sub.user,
           });
         });
@@ -240,7 +246,9 @@ exports.updateUserSubscription = async (req, res) => {
               amount: 0,
               plan: 'Pro (Lifetime VIP)',
               paidAt: new Date(),
-              method: 'super_admin_override',
+              gateway: 'Admin Panel',
+              method: 'admin_override',
+              paymentMethod: 'Manual Grant',
             },
           },
         };
@@ -282,7 +290,9 @@ exports.updateUserSubscription = async (req, res) => {
               amount: price,
               plan: targetPlan === 'pro' ? 'Pro Plan' : 'Standard Plan',
               paidAt: new Date(),
-              method: 'super_admin_override',
+              gateway: 'Admin Panel',
+              method: 'admin_override',
+              paymentMethod: 'Manual Override',
             },
           },
         };

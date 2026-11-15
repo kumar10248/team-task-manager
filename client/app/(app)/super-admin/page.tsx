@@ -856,15 +856,16 @@ export default function SuperAdminPage() {
                     <th style={{ padding: '12px 14px' }}>Date</th>
                     <th style={{ padding: '12px 14px' }}>Plan</th>
                     <th style={{ padding: '12px 14px' }}>Amount</th>
-                    <th style={{ padding: '12px 14px' }}>Payment ID</th>
+                    <th style={{ padding: '12px 14px' }}>Gateway</th>
                     <th style={{ padding: '12px 14px' }}>Method</th>
+                    <th style={{ padding: '12px 14px' }}>Payment ID</th>
                     <th style={{ padding: '12px 14px' }}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {metrics.recentPayments.length === 0 ? (
                     <tr>
-                      <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      <td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
                         No transactions recorded yet.
                       </td>
                     </tr>
@@ -880,14 +881,32 @@ export default function SuperAdminPage() {
                         <td style={{ padding: '12px 14px', fontWeight: 600, color: '#4ade80' }}>
                           ₹{tx.amount.toLocaleString('en-IN')}
                         </td>
+                        <td style={{ padding: '12px 14px' }}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            fontSize: 11,
+                            padding: '3px 8px',
+                            borderRadius: 6,
+                            background: tx.gateway === 'Admin Panel' ? 'rgba(234, 179, 8, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                            color: tx.gateway === 'Admin Panel' ? '#fde047' : '#93c5fd',
+                            border: `1px solid ${tx.gateway === 'Admin Panel' ? 'rgba(234, 179, 8, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`,
+                            fontWeight: 600,
+                          }}>
+                            {tx.gateway || 'Razorpay'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 14px' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(192, 132, 252, 0.12)', color: '#d8b4fe', border: '1px solid rgba(192, 132, 252, 0.25)', fontWeight: 600, textTransform: 'uppercase' }}>
+                            {tx.method || 'UPI'}
+                          </span>
+                        </td>
                         <td style={{ padding: '12px 14px', color: 'var(--text-muted)', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
                           {tx.paymentId || '—'}
                         </td>
-                        <td style={{ padding: '12px 14px', color: 'var(--text-muted)', textTransform: 'capitalize' }}>
-                          {tx.method || 'razorpay'}
-                        </td>
                         <td style={{ padding: '12px 14px' }}>
-                          <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: 'rgba(74, 222, 128, 0.1)', color: '#4ade80' }}>
+                          <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 12, background: 'rgba(74, 222, 128, 0.15)', color: '#4ade80', fontWeight: 600, border: '1px solid rgba(74, 222, 128, 0.3)' }}>
                             Captured
                           </span>
                         </td>

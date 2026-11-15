@@ -656,6 +656,8 @@ export default function BillingPage() {
                     <th style={{ padding: '10px 14px' }}>Date</th>
                     <th style={{ padding: '10px 14px' }}>Plan</th>
                     <th style={{ padding: '10px 14px' }}>Amount</th>
+                    <th style={{ padding: '10px 14px' }}>Payment Gateway</th>
+                    <th style={{ padding: '10px 14px' }}>Payment Method</th>
                     <th style={{ padding: '10px 14px' }}>Transaction ID</th>
                     <th style={{ padding: '10px 14px' }}>Status</th>
                   </tr>
@@ -672,11 +674,33 @@ export default function BillingPage() {
                       <td style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>
                         ₹{tx.amount.toLocaleString('en-IN')}
                       </td>
+                      <td style={{ padding: '12px 14px' }}>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          fontSize: 11,
+                          padding: '3px 8px',
+                          borderRadius: 6,
+                          background: tx.gateway === 'Admin Panel' ? 'rgba(234, 179, 8, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                          color: tx.gateway === 'Admin Panel' ? '#fde047' : '#93c5fd',
+                          border: `1px solid ${tx.gateway === 'Admin Panel' ? 'rgba(234, 179, 8, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`,
+                          fontWeight: 600,
+                          letterSpacing: '0.02em',
+                        }}>
+                          {tx.gateway || 'Razorpay'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 14px' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(192, 132, 252, 0.12)', color: '#d8b4fe', border: '1px solid rgba(192, 132, 252, 0.25)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                          {tx.paymentMethod || tx.method || 'UPI'}
+                        </span>
+                      </td>
                       <td style={{ padding: '12px 14px', color: 'var(--text-muted)', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
                         {tx.paymentId || '—'}
                       </td>
                       <td style={{ padding: '12px 14px' }}>
-                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: 'rgba(74, 222, 128, 0.1)', color: '#4ade80' }}>
+                        <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 12, background: 'rgba(74, 222, 128, 0.15)', color: '#4ade80', fontWeight: 600, border: '1px solid rgba(74, 222, 128, 0.3)' }}>
                           Paid
                         </span>
                       </td>

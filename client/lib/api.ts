@@ -394,7 +394,9 @@ export interface SubscriptionPaymentHistory {
   amount: number;
   plan: string;
   paidAt: string;
-  method: string;
+  gateway?: string;
+  method?: string;
+  paymentMethod?: string;
 }
 
 export interface Subscription {
@@ -587,6 +589,7 @@ export interface AdminMetrics {
     amount: number;
     plan: string;
     paidAt: string;
+    gateway?: string;
     method?: string;
     userId: string;
   }>;

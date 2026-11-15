@@ -299,6 +299,18 @@ exports.verifyPayment = async (req, res) => {
     const now = new Date();
     const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days access
 
+    // Detect payment method (UPI, Card, Netbanking, etc.) from Razorpay API or request
+    let detectedMethod = (req.body?.payment_method || req.body?.method || 'UPI').toUpperCase();
+    const razorpay = getRazorpayInstance();
+    if (razorpay && resolvedPaymentId && !resolvedPaymentId.startsWith('pay_mock_')) {
+      try {
+        const paymentDetails = await razorpay.payments.fetch(resolvedPaymentId);
+        if (paymentDetails?.method) {
+          detectedMethod = paymentDetails.method.toUpperCase();
+        }
+      } catch {}
+    }
+
     const updatedSub = await Subscription.findOneAndUpdate(
       { user: req.user._id },
       {
@@ -320,7 +332,9 @@ exports.verifyPayment = async (req, res) => {
             amount: selectedPlan.price,
             plan: selectedPlan.name,
             paidAt: now,
-            method: 'razorpay',
+            gateway: 'Razorpay',
+            method: detectedMethod,
+            paymentMethod: detectedMethod,
           },
         },
       },

@@ -174,6 +174,18 @@ exports.verifyPayment = async (req, res) => {
       const planName = plan === 'pro' ? 'Pro Plan' : plan === 'standard' ? 'Standard Plan' : 'Subscription';
       const planPrice = plan === 'pro' ? 3000 : plan === 'standard' ? 2000 : 0;
 
+      // Detect payment method (UPI, Card, Netbanking, etc.) from Razorpay API or request
+      let detectedMethod = (req.body?.payment_method || req.body?.method || 'UPI').toUpperCase();
+      const razorpayInstance = getRazorpayInstance();
+      if (razorpayInstance && resolvedPaymentId && !resolvedPaymentId.startsWith('pay_mock_') && !resolvedPaymentId.startsWith('pay_test_')) {
+        try {
+          const paymentDetails = await razorpayInstance.payments.fetch(resolvedPaymentId);
+          if (paymentDetails?.method) {
+            detectedMethod = paymentDetails.method.toUpperCase();
+          }
+        } catch {}
+      }
+
       updatedSub = await Subscription.findOneAndUpdate(
         { user: req.user._id },
         {
@@ -195,7 +207,9 @@ exports.verifyPayment = async (req, res) => {
               amount: planPrice,
               plan: planName,
               paidAt: now,
-              method: 'razorpay',
+              gateway: 'Razorpay',
+              method: detectedMethod,
+              paymentMethod: detectedMethod,
             },
           },
         },
