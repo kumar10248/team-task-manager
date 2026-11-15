@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback, ReactElement } from 'react';
+import { useEffect, useState, useCallback, useRef, ReactElement } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { authApi, projectsApi, ProjectInvitation, ProjectAddPrivacy } from '@/lib/api';
@@ -7,7 +7,8 @@ import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import {
   User, Lock, Save, Bell, Moon, Smartphone, ShieldCheck, Mail,
-  Shield, Users, UserPlus, ShieldAlert, Check, X, Clock, CheckCircle2
+  Shield, Users, UserPlus, ShieldAlert, Check, X, Clock, CheckCircle2,
+  Camera, Trash2, Loader2, Cloud
 } from 'lucide-react';
 
 interface ProfileForm {
@@ -35,6 +36,9 @@ export default function SettingsPage(): ReactElement {
   const [saving, setSaving]                   = useState<boolean>(false);
   const [savingPw, setSavingPw]               = useState<boolean>(false);
   
+  const fileInputRef                          = useRef<HTMLInputElement>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState<boolean>(false);
+
   // Preferences state
   const [prefs, setPrefs] = useState({
     emailNotifs: true,
@@ -81,6 +85,67 @@ export default function SettingsPage(): ReactElement {
       active = false;
     };
   }, [user, tab]);
+
+  const handleAvatarSelect = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast('Please select an image file (PNG, JPG, WebP, etc.)', 'error');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast('Image file size must be less than 5MB', 'error');
+      return;
+    }
+
+    setUploadingAvatar(true);
+    const reader = new FileReader();
+
+    reader.onload = async () => {
+      try {
+        const base64Data = reader.result as string;
+        const res = await authApi.uploadAvatar(base64Data);
+        if (res.success) {
+          setUser(res.user);
+          toast(res.isCloudinary ? '☁️ Avatar uploaded to Cloudinary!' : 'Avatar updated successfully', 'success');
+        }
+      } catch (err: unknown) {
+        toast(err instanceof Error ? err.message : 'Failed to upload avatar', 'error');
+      } finally {
+        setUploadingAvatar(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+
+    reader.onerror = () => {
+      toast('Failed to read image file', 'error');
+      setUploadingAvatar(false);
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveAvatar = async () => {
+    if (!confirm('Are you sure you want to remove your avatar?')) return;
+    setUploadingAvatar(true);
+    try {
+      const res = await authApi.deleteAvatar();
+      if (res.success) {
+        setUser(res.user);
+        toast('Avatar removed successfully', 'success');
+      }
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to remove avatar', 'error');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   const saveProfile = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
@@ -198,20 +263,117 @@ export default function SettingsPage(): ReactElement {
                 <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 120, background: 'linear-gradient(180deg, rgba(129, 140, 248, 0.1) 0%, transparent 100%)' }} />
                 
                 <div style={{ position: 'relative', zIndex: 1, display: 'flex', gap: 32, alignItems: 'flex-start' }}>
-                  {/* Glowing Avatar */}
+                  {/* Glowing Cloudinary Avatar */}
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <div style={{ 
-                      width: 100, height: 100, borderRadius: '50%', 
-                      background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', 
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                      fontSize: 40, fontFamily: 'Outfit, sans-serif', color: '#fff', fontWeight: 600,
-                      boxShadow: '0 0 40px rgba(129, 140, 248, 0.4)',
-                      border: '4px solid rgba(255,255,255,0.1)',
-                      marginBottom: 16
-                    }}>
-                      {user?.name?.[0]?.toUpperCase()}
+                    <div style={{ position: 'relative' }}>
+                      <div style={{ 
+                        width: 104, height: 104, borderRadius: '50%', 
+                        background: user?.avatar ? 'transparent' : 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', 
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                        fontSize: 40, fontFamily: 'Outfit, sans-serif', color: '#fff', fontWeight: 600,
+                        boxShadow: '0 0 35px rgba(129, 140, 248, 0.4)',
+                        border: '3px solid rgba(129, 140, 248, 0.35)',
+                        marginBottom: 14,
+                        overflow: 'hidden',
+                        position: 'relative',
+                      }}>
+                        {user?.avatar ? (
+                          <img
+                            src={user.avatar}
+                            alt={user.name}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          />
+                        ) : (
+                          user?.name?.[0]?.toUpperCase() ?? 'U'
+                        )}
+
+                        {uploadingAvatar && (
+                          <div style={{
+                            position: 'absolute', inset: 0,
+                            background: 'rgba(0, 0, 0, 0.75)',
+                            backdropFilter: 'blur(4px)',
+                            display: 'flex', flexDirection: 'column',
+                            alignItems: 'center', justifyContent: 'center',
+                            gap: 4,
+                          }}>
+                            <Loader2 size={24} color="#818cf8" className="animate-spin" />
+                            <span style={{ fontSize: 10, color: '#fff', fontFamily: 'Outfit, sans-serif' }}>Uploading…</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleAvatarSelect}
+                        disabled={uploadingAvatar}
+                        title="Upload Photo"
+                        style={{
+                          position: 'absolute', bottom: 12, right: 0,
+                          width: 32, height: 32, borderRadius: '50%',
+                          background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+                          border: '2px solid var(--bg-surface)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          color: '#fff', cursor: 'pointer',
+                          boxShadow: '0 2px 10px rgba(0,0,0,0.4)',
+                        }}
+                      >
+                        <Camera size={15} />
+                      </button>
                     </div>
-                    <button className="btn-ghost" style={{ fontSize: 12, padding: '6px 12px' }}>Change Avatar</button>
+
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      accept="image/*"
+                      onChange={handleAvatarChange}
+                      style={{ display: 'none' }}
+                    />
+
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
+                      <button
+                        type="button"
+                        onClick={handleAvatarSelect}
+                        disabled={uploadingAvatar}
+                        className="btn-ghost"
+                        style={{ fontSize: 12, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
+                      >
+                        <Camera size={13} /> {uploadingAvatar ? 'Uploading…' : (user?.avatar ? 'Change' : 'Upload Avatar')}
+                      </button>
+
+                      {user?.avatar && (
+                        <button
+                          type="button"
+                          onClick={handleRemoveAvatar}
+                          disabled={uploadingAvatar}
+                          style={{
+                            background: 'rgba(239, 68, 68, 0.1)',
+                            border: '1px solid rgba(239, 68, 68, 0.25)',
+                            borderRadius: 8,
+                            padding: '6px 10px',
+                            fontSize: 12,
+                            color: '#f87171',
+                            cursor: uploadingAvatar ? 'not-allowed' : 'pointer',
+                            display: 'flex', alignItems: 'center', gap: 4,
+                            fontFamily: 'Outfit, sans-serif',
+                          }}
+                        >
+                          <Trash2 size={13} /> Remove
+                        </button>
+                      )}
+                    </div>
+
+                    {user?.avatar && user.avatar.includes('cloudinary.com') && (
+                      <span style={{
+                        marginTop: 8, fontSize: 10, color: '#38bdf8',
+                        background: 'rgba(56, 189, 248, 0.1)',
+                        padding: '2px 8px', borderRadius: 10,
+                        border: '1px solid rgba(56, 189, 248, 0.25)',
+                        display: 'flex', alignItems: 'center', gap: 4,
+                        fontFamily: 'Outfit, sans-serif',
+                      }}>
+                        <Cloud size={10} /> Cloudinary CDN Active
+                      </span>
+                    )}
                   </div>
 
                   <form onSubmit={saveProfile} style={{ flex: 1 }}>

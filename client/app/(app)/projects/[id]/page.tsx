@@ -342,9 +342,14 @@ function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelet
                     marginLeft: i > 0 ? -8 : 0,
                     border: '2px solid rgba(15, 23, 42, 0.9)',
                     boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                    overflow: 'hidden',
                   }}
                 >
-                  {u.name?.[0]?.toUpperCase()}
+                  {u.avatar ? (
+                    <img src={u.avatar} alt={u.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    u.name?.[0]?.toUpperCase()
+                  )}
                 </div>
               ))}
               {assignees.length > 3 && (
@@ -708,6 +713,7 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
         name: c.user.name,
         isMe: !!isMe,
         initial: (c.user.name[0] || 'U').toUpperCase(),
+        avatar: (isMe && user?.avatar) ? user.avatar : (c.user.avatar || null),
       };
     }
 
@@ -719,6 +725,7 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
         name: user?.name || 'You',
         isMe: true,
         initial: (user?.name?.[0] || 'Y').toUpperCase(),
+        avatar: user?.avatar || null,
       };
     }
 
@@ -730,6 +737,7 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
           name: found.user.name,
           isMe: false,
           initial: (found.user.name[0] || 'U').toUpperCase(),
+          avatar: found.user.avatar || null,
         };
       }
     }
@@ -741,6 +749,7 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
         name: assignedUser.name,
         isMe: false,
         initial: (assignedUser.name[0] || 'U').toUpperCase(),
+        avatar: assignedUser.avatar || null,
       };
     }
 
@@ -750,6 +759,7 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
         name: task.createdBy.name,
         isMe: false,
         initial: (task.createdBy.name[0] || 'U').toUpperCase(),
+        avatar: task.createdBy.avatar || null,
       };
     }
 
@@ -758,6 +768,7 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
       name: 'Team Member',
       isMe: false,
       initial: 'U',
+      avatar: null,
     };
   };
 
@@ -1035,14 +1046,46 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
                     fontFamily: 'Outfit, sans-serif',
                   }}
                 >
-                  <Clock size={13} color="var(--accent-primary)" style={{ flexShrink: 0 }} />
+                  {author.avatar ? (
+                    <img
+                      src={author.avatar}
+                      alt={author.name}
+                      style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: '50%',
+                        objectFit: 'cover',
+                        flexShrink: 0,
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: '50%',
+                        background: 'rgba(129, 140, 248, 0.2)',
+                        color: 'var(--accent-primary)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 10,
+                        fontWeight: 600,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {userInitial}
+                    </div>
+                  )}
                   <span style={{ color: 'var(--text-secondary)', flex: 1 }}>
                     <strong style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{author.name}</strong>{' '}
                     {c.text}
                   </span>
-                  <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
-                    {formatTimeAgo(c.createdAt)}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
+                    <Clock size={11} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                    <span>{formatTimeAgo(c.createdAt)}</span>
+                  </div>
                 </div>
               );
             }
@@ -1078,9 +1121,18 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
                     fontWeight: 600,
                     fontFamily: 'Outfit, sans-serif',
                     boxShadow: isMe ? '0 0 12px rgba(129, 140, 248, 0.3)' : 'none',
+                    overflow: 'hidden',
                   }}
                 >
-                  {userInitial}
+                  {author.avatar ? (
+                    <img
+                      src={author.avatar}
+                      alt={author.name}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    userInitial
+                  )}
                 </div>
 
                 {/* Content */}
@@ -2089,9 +2141,14 @@ export default function ProjectDetailPage() {
                       fontSize: 10,
                       fontWeight: 600,
                       color: '#fff',
+                      overflow: 'hidden',
                     }}
                   >
-                    {name[0]?.toUpperCase()}
+                    {member?.user?.avatar ? (
+                      <img src={member.user.avatar} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      name[0]?.toUpperCase()
+                    )}
                   </span>
                   {name}
                   <button
@@ -2184,9 +2241,14 @@ export default function ProjectDetailPage() {
                         fontSize: 10,
                         fontWeight: 600,
                         color: '#fff',
+                        overflow: 'hidden',
                       }}
                     >
-                      {m.user.name?.[0]?.toUpperCase()}
+                      {m.user?.avatar ? (
+                        <img src={m.user.avatar} alt={m.user.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        m.user.name?.[0]?.toUpperCase()
+                      )}
                     </div>
                     <div>
                       <div style={{ fontSize: 13, fontFamily: 'Outfit, sans-serif', color: 'var(--text-primary)', fontWeight: 500 }}>
@@ -2674,7 +2736,11 @@ export default function ProjectDetailPage() {
                   boxShadow: onlyMyTasks ? '0 0 12px rgba(129, 140, 248, 0.25)' : 'none',
                 }}
               >
-                <User size={13} color={onlyMyTasks ? 'var(--accent-primary)' : 'currentColor'} />
+                {user?.avatar ? (
+                  <img src={user.avatar} alt="Me" style={{ width: 16, height: 16, borderRadius: '50%', objectFit: 'cover' }} />
+                ) : (
+                  <User size={13} color={onlyMyTasks ? 'var(--accent-primary)' : 'currentColor'} />
+                )}
                 My Tasks
               </button>
 
@@ -2906,9 +2972,14 @@ export default function ProjectDetailPage() {
                                         fontSize: 9, color: '#fff', fontWeight: 600,
                                         marginLeft: i > 0 ? -6 : 0,
                                         border: '1.5px solid rgba(15, 23, 42, 0.9)',
+                                        overflow: 'hidden',
                                       }}
                                     >
-                                      {u.name?.[0]?.toUpperCase()}
+                                      {u.avatar ? (
+                                        <img src={u.avatar} alt={u.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                      ) : (
+                                        u.name?.[0]?.toUpperCase()
+                                      )}
                                     </div>
                                   ))}
                                   {assignees.length > 3 && (
@@ -2984,8 +3055,12 @@ export default function ProjectDetailPage() {
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)'; }}
                 >
                   <div style={{ position: 'relative' }}>
-                    <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontFamily: 'Outfit, sans-serif', color: '#fff', fontWeight: 600, flexShrink: 0 }}>
-                      {m.user?.name?.[0]?.toUpperCase()}
+                    <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontFamily: 'Outfit, sans-serif', color: '#fff', fontWeight: 600, flexShrink: 0, overflow: 'hidden' }}>
+                      {m.user?.avatar ? (
+                        <img src={m.user.avatar} alt={m.user.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        m.user?.name?.[0]?.toUpperCase()
+                      )}
                     </div>
                     {/* Status Dot */}
                     <span style={{ position:'absolute', bottom:-2, right:-2, width:12, height:12, borderRadius:'50%', background: m.user?.isClockedIn ? '#4ade80' : 'var(--text-muted)', border:'2px solid #0a0a0f', boxShadow: m.user?.isClockedIn ? '0 0 8px #4ade80' : 'none' }} />
@@ -3113,12 +3188,45 @@ export default function ProjectDetailPage() {
                             {m.title}
                           </h4>
 
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: 12, marginBottom: 14 }}>
-                            <Calendar size={13} />
-                            <span>{start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', weekday: 'short' })}</span>
-                            <span>•</span>
-                            <Clock size={13} />
-                            <span>{start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: 12 }}>
+                              <Calendar size={13} />
+                              <span>{start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', weekday: 'short' })}</span>
+                              <span>•</span>
+                              <Clock size={13} />
+                              <span>{start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            </div>
+                            {m.participants && m.participants.length > 0 && (
+                              <div style={{ display: 'flex', alignItems: 'center' }}>
+                                {m.participants.slice(0, 3).map((p, idx) => (
+                                  <div
+                                    key={p._id || idx}
+                                    title={p.name}
+                                    style={{
+                                      width: 20,
+                                      height: 20,
+                                      borderRadius: '50%',
+                                      background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+                                      color: '#fff',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      fontSize: 9,
+                                      fontWeight: 600,
+                                      marginLeft: idx > 0 ? -6 : 0,
+                                      border: '1.5px solid #0f111a',
+                                      overflow: 'hidden',
+                                    }}
+                                  >
+                                    {p.avatar ? (
+                                      <img src={p.avatar} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    ) : (
+                                      p.name?.[0]?.toUpperCase()
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
 
                           {m.agenda && m.agenda.length > 0 && (
@@ -3159,7 +3267,7 @@ export default function ProjectDetailPage() {
                           </div>
 
                           <a
-                            href={getPersonalizedMeetLink(m.meetLink, user?.name)}
+                            href={getPersonalizedMeetLink(m.meetLink, user?.name, user?.avatar)}
                             target="_blank"
                             rel="noopener noreferrer"
                             style={{
@@ -3244,8 +3352,12 @@ export default function ProjectDetailPage() {
         <Modal title="Edit Role" onClose={() => setEditingMember(null)} width={400}>
           <form onSubmit={saveRoleChange}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 0', marginBottom: 24, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-              <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: '#fff', fontWeight: 600, fontFamily: 'Outfit, sans-serif', flexShrink: 0 }}>
-                {editingMember.user?.name?.[0]?.toUpperCase()}
+              <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: '#fff', fontWeight: 600, fontFamily: 'Outfit, sans-serif', flexShrink: 0, overflow: 'hidden' }}>
+                {editingMember.user?.avatar ? (
+                  <img src={editingMember.user.avatar} alt={editingMember.user.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  editingMember.user?.name?.[0]?.toUpperCase()
+                )}
               </div>
               <div>
                 <div style={{ fontSize: 15, fontWeight: 500, fontFamily: 'Outfit, sans-serif', color: 'var(--text-primary)' }}>{editingMember.user?.name}</div>

@@ -11,6 +11,8 @@ const projectRoutes = require('./src/routes/project.route');
 const dashboardRoutes = require('./src/routes/dashboard.route');
 const notificationRoutes = require('./src/routes/notification.route');
 const meetingRoutes = require('./src/routes/meeting.route');
+const subscriptionRoutes = require('./src/routes/subscription.route');
+const adminRoutes = require('./src/routes/admin.route');
  
 const app = express();
  
@@ -44,6 +46,8 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/meetings', meetingRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/admin', adminRoutes);
  
 // Health check
 app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toLocaleString() }));

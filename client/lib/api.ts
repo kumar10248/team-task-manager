@@ -15,6 +15,7 @@ export interface User {
   lastClockIn?: string;
   lastClockOut?: string;
   projectAddPrivacy?: ProjectAddPrivacy;
+  isSuperAdmin?: boolean;
   createdAt: string;
 }
 
@@ -160,8 +161,17 @@ export const authApi = {
   logout:         ()                                                      => post<{ success: boolean; message: string }>('/auth/logout', {}),
   forgotPassword: (d: { email: string })                                 => post<{ success: boolean; message: string }>('/auth/forgot-password', d),
   resetPassword:  (d: { email: string; code: string; newPassword: string }) => post<{ success: boolean; message: string }>('/auth/reset-password', d),
-  getMe:          ()                                                      => get<{ success: boolean; user: User }>('/auth/me'),
+  getMe:          ()                                                      => get<{
+    success: boolean;
+    user: User;
+    subscription?: Subscription;
+    isCoveredByAdmin?: boolean;
+    coveringAdminName?: string | null;
+    ownedProjectsCount?: number;
+  }>('/auth/me'),
   updateMe:       (d: Partial<Pick<User, 'name' | 'avatar' | 'projectAddPrivacy'>>) => patch<{ success: boolean; user: User }>('/auth/me', d),
+  uploadAvatar:   (image: string)                                         => post<{ success: boolean; message: string; avatar: string; user: User; isCloudinary: boolean }>('/auth/avatar', { image }),
+  deleteAvatar:   ()                                                      => del<{ success: boolean; message: string; user: User }>('/auth/avatar'),
   changePassword: (d: { currentPassword: string; newPassword: string }) => post<AuthResponse>('/auth/change-password', d),
   clockIn:        ()                                                      => post<{ success: boolean; user: User }>('/auth/clock-in', {}),
   clockOut:       ()                                                      => post<{ success: boolean; user: User }>('/auth/clock-out', {}),
@@ -316,11 +326,11 @@ export const meetingsApi = {
 };
 
 /**
- * Appends or injects the user's TaskForge account display name into the meeting link
- * so WebRTC conference platforms (MiroTalk, Jitsi, etc.) pre-fill their name automatically,
+ * Appends or injects the user's TaskForge account display name and avatar URL into the meeting link
+ * so WebRTC conference platforms (MiroTalk, Jitsi, etc.) pre-fill their name and profile photo automatically,
  * and sets `notify=0` so MiroTalk suppresses the automatic "Share the room" QR popup modal.
  */
-export function getPersonalizedMeetLink(meetLink: string, userName?: string): string {
+export function getPersonalizedMeetLink(meetLink: string, userName?: string, userAvatar?: string | null): string {
   if (!meetLink) return meetLink;
   try {
     const url = new URL(meetLink);
@@ -328,28 +338,254 @@ export function getPersonalizedMeetLink(meetLink: string, userName?: string): st
       if (url.pathname.startsWith('/join/')) {
         const roomName = url.pathname.replace('/join/', '');
         const nameParam = userName ? `&name=${encodeURIComponent(userName)}` : '';
-        return `https://${url.hostname}/join?room=${encodeURIComponent(roomName)}${nameParam}&notify=0`;
+        const avatarParam = userAvatar ? `&avatar=${encodeURIComponent(userAvatar)}` : '';
+        return `https://${url.hostname}/join?room=${encodeURIComponent(roomName)}${nameParam}${avatarParam}&notify=0`;
       }
       if (userName) {
         url.searchParams.set('name', userName);
+      }
+      if (userAvatar) {
+        url.searchParams.set('avatar', userAvatar);
       }
       // notify=0 tells MiroTalk client to skip the "Share the room" QR code modal on join
       url.searchParams.set('notify', '0');
       return url.toString();
     }
     if (url.hostname.includes('jit.si')) {
+      const hashParts: string[] = [];
       if (userName) {
-        return `${meetLink}#userInfo.displayName=${encodeURIComponent(JSON.stringify(userName))}`;
+        hashParts.push(`userInfo.displayName=${encodeURIComponent(JSON.stringify(userName))}`);
+      }
+      if (userAvatar) {
+        hashParts.push(`userInfo.avatarURL=${encodeURIComponent(JSON.stringify(userAvatar))}`);
+      }
+      if (hashParts.length > 0) {
+        return `${meetLink}#${hashParts.join('&')}`;
       }
       return meetLink;
     }
-    return meetLink;
+
+    // Generic WebRTC / custom video room
+    if (userName) url.searchParams.set('name', userName);
+    if (userAvatar) url.searchParams.set('avatar', userAvatar);
+    return url.toString();
   } catch {
     const sep = meetLink.includes('?') ? '&' : '?';
     const namePart = userName ? `name=${encodeURIComponent(userName)}&` : '';
-    return `${meetLink}${sep}${namePart}notify=0`;
+    const avatarPart = userAvatar ? `avatar=${encodeURIComponent(userAvatar)}&` : '';
+    return `${meetLink}${sep}${namePart}${avatarPart}notify=0`;
   }
 }
+
+// ─── Subscriptions & Billing ──────────────────────────────────────────────────
+
+export interface SubscriptionPaymentHistory {
+  paymentId: string;
+  orderId: string;
+  amount: number;
+  plan: string;
+  paidAt: string;
+  method: string;
+}
+
+export interface Subscription {
+  _id: string;
+  user: string;
+  plan: 'free' | 'standard' | 'pro';
+  status: 'active' | 'trialing' | 'expired' | 'cancelled' | 'pending';
+  amount: number;
+  currency: string;
+  billingCycle: 'monthly' | 'yearly';
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  daysRemaining: number;
+  isActive: boolean;
+  cancelAtPeriodEnd: boolean;
+  isLifetime?: boolean;
+  razorpayOrderId?: string | null;
+  razorpayPaymentId?: string | null;
+  history: SubscriptionPaymentHistory[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlanDetails {
+  id: 'free' | 'standard' | 'pro';
+  name: string;
+  price: number;
+  amountInPaise?: number;
+  currency?: string;
+  interval: string;
+  features: string[];
+  maxProjects: number;
+  maxMembers: number;
+}
+
+export interface SubscriptionResponse {
+  success: boolean;
+  subscription: Subscription;
+  plans: Record<string, PlanDetails>;
+  razorpayKeyId: string;
+  isConfigured: boolean;
+  isCoveredByAdmin?: boolean;
+  coveringAdminName?: string | null;
+  ownedProjectsCount?: number;
+}
+
+export interface CreateOrderResponse {
+  success: boolean;
+  orderId: string;
+  amount: number;
+  amountInPaise: number;
+  currency: string;
+  plan: PlanDetails;
+  razorpayKeyId: string;
+  isLiveConfigured: boolean;
+  message?: string;
+}
+
+export interface RazorpayResponse {
+  razorpay_payment_id: string;
+  razorpay_order_id: string;
+  razorpay_signature: string;
+}
+
+export interface RazorpayOptions {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+  prefill?: {
+    name?: string;
+    email?: string;
+    contact?: string;
+  };
+  notes?: Record<string, string>;
+  theme?: {
+    color?: string;
+  };
+  config?: {
+    display?: {
+      sequence?: string[];
+      preferences?: {
+        show_default_blocks?: boolean;
+      };
+    };
+  };
+  method?: {
+    upi?: boolean;
+    card?: boolean;
+    netbanking?: boolean;
+    wallet?: boolean;
+  };
+  handler: (response: RazorpayResponse) => void | Promise<void>;
+  modal?: {
+    ondismiss?: () => void;
+  };
+}
+
+export interface RazorpayInstance {
+  open: () => void;
+  on: (event: string, callback: unknown) => void;
+}
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: RazorpayOptions) => RazorpayInstance;
+  }
+}
+
+export const subscriptionApi = {
+  get: () => get<SubscriptionResponse>('/subscriptions'),
+  createOrder: (plan: 'standard' | 'pro') =>
+    post<CreateOrderResponse>('/subscriptions/create-order', { plan }),
+  verifyPayment: (data: {
+    razorpay_order_id?: string;
+    razorpay_payment_id?: string;
+    razorpay_signature?: string;
+    plan: 'standard' | 'pro';
+  }) => post<{ success: boolean; message: string; subscription: Subscription }>('/subscriptions/verify-payment', data),
+  cancel: () =>
+    post<{ success: boolean; message: string; subscription: Subscription }>('/subscriptions/cancel', {}),
+  resetTrial: () =>
+    post<{ success: boolean; message: string; subscription: Subscription }>('/subscriptions/reset-trial', {}),
+  expireTrial: () =>
+    post<{ success: boolean; message: string; subscription: Subscription }>('/subscriptions/expire-trial', {}),
+};
+
+// ─── Super Admin Control Panel ────────────────────────────────────────────────
+
+export interface AdminMetrics {
+  totalUsers: number;
+  totalProjects: number;
+  totalTasks: number;
+  totalMeetings: number;
+  estimatedMRR: number;
+  subscriptions: {
+    total: number;
+    active: number;
+    activeStandard: number;
+    activePro: number;
+    trialing: number;
+    expired: number;
+    lifetime: number;
+  };
+  recentPayments: Array<{
+    paymentId?: string;
+    orderId?: string;
+    amount: number;
+    plan: string;
+    paidAt: string;
+    method?: string;
+    userId: string;
+  }>;
+}
+
+export interface AdminUser {
+  _id: string;
+  name: string;
+  email: string;
+  avatar: string | null;
+  isSuperAdmin: boolean;
+  isClockedIn: boolean;
+  createdAt: string;
+  subscription: Subscription;
+  ownedProjectsCount: number;
+  memberProjectsCount: number;
+}
+
+export interface AdminProject {
+  _id: string;
+  name: string;
+  description: string;
+  color: string;
+  status: string;
+  createdBy: User;
+  createdAt: string;
+  memberCount: number;
+  taskStats: { total: number; done: number };
+}
+
+export const adminApi = {
+  getMetrics: () => get<{ success: boolean; metrics: AdminMetrics }>('/admin/metrics'),
+  getUsers: (params: { search?: string; status?: string; plan?: string; page?: number; limit?: number } = {}) => {
+    const qs = new URLSearchParams(params as Record<string, string>).toString();
+    return get<{ success: boolean; users: AdminUser[]; totalCount: number; page: number; limit: number }>(`/admin/users${qs ? `?${qs}` : ''}`);
+  },
+  updateSubscription: (
+    userId: string,
+    data: {
+      action: 'grant_lifetime' | 'extend_trial' | 'set_plan' | 'expire' | 'reset_trial';
+      plan?: 'free' | 'standard' | 'pro';
+      days?: number;
+    }
+  ) => patch<{ success: boolean; message: string; subscription: Subscription }>(`/admin/users/${userId}/subscription`, data),
+  toggleSuperAdmin: (userId: string, isSuperAdmin: boolean) =>
+    patch<{ success: boolean; message: string; user: User }>(`/admin/users/${userId}/role`, { isSuperAdmin }),
+  getProjects: () => get<{ success: boolean; projects: AdminProject[] }>('/admin/projects'),
+};
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
 

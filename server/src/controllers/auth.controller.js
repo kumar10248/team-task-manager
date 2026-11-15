@@ -2,7 +2,10 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const User = require('../models/User');
 const AttendanceLog = require('../models/AttendanceLog');
+const Subscription = require('../models/Subscription');
+const { checkUserSubscriptionCoverage } = require('./subscription.controller');
 const { sendPasswordResetEmail } = require('../utils/email');
+const { cloudinary, getCloudinary, isConfigured: isCloudinaryConfigured } = require('../config/cloudinary');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -89,6 +92,13 @@ exports.login = async (req, res) => {
     }
 
     user.lastLogin = new Date();
+
+    // Auto-bootstrap super admin: if no user is designated super admin in the system yet, promote this user
+    const superAdminCount = await User.countDocuments({ isSuperAdmin: true });
+    if (superAdminCount === 0) {
+      user.isSuperAdmin = true;
+    }
+
     await user.save({ validateBeforeSave: false });
 
     sendTokenResponse(user, 200, res);
@@ -161,8 +171,27 @@ exports.getMe = async (req, res) => {
       user = await autoClockOutIfExceeded(user);
     }
 
-    res.json({ success: true, user: typeof user.toPublicJSON === 'function' ? user.toPublicJSON() : user });
+    // Auto-bootstrap: if no user in system is designated super admin, designate current user
+    if (!user.isSuperAdmin) {
+      const superAdminCount = await User.countDocuments({ isSuperAdmin: true });
+      if (superAdminCount === 0) {
+        await User.findByIdAndUpdate(user._id, { isSuperAdmin: true });
+        user.isSuperAdmin = true;
+      }
+    }
+
+    const coverage = await checkUserSubscriptionCoverage(user._id);
+
+    res.json({
+      success: true,
+      user: typeof user.toPublicJSON === 'function' ? user.toPublicJSON() : user,
+      subscription: coverage.subscription,
+      isCoveredByAdmin: coverage.isCoveredByAdmin,
+      coveringAdminName: coverage.coveringAdminName,
+      ownedProjectsCount: coverage.ownedProjectsCount,
+    });
   } catch (err) {
+    console.error('getMe error:', err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
@@ -195,6 +224,78 @@ exports.updateMe = async (req, res) => {
       return res.status(400).json({ success: false, message: messages.join(', ') });
     }
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/**
+ * POST /api/auth/avatar
+ * Uploads user avatar to Cloudinary with automatic face-detection crop & compression
+ * Body: { image: string (base64 data URI) }
+ */
+exports.uploadAvatar = async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image) {
+      return res.status(400).json({ success: false, message: 'Image data is required' });
+    }
+
+    let avatarUrl = '';
+    const cl = getCloudinary();
+
+    if (cl) {
+      // Real Cloudinary upload with face-detection thumbnail & auto-compression
+      const uploadRes = await cl.uploader.upload(image, {
+        folder: 'taskforge_avatars',
+        transformation: [
+          { width: 300, height: 300, crop: 'thumb', gravity: 'face' },
+          { quality: 'auto', fetch_format: 'auto' },
+        ],
+      });
+      avatarUrl = uploadRes.secure_url;
+    } else {
+      // Seamless fallback if user hasn't added Cloudinary API keys yet
+      avatarUrl = image;
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      { avatar: avatarUrl },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: cl ? 'Avatar uploaded to Cloudinary successfully' : 'Avatar updated successfully',
+      avatar: avatarUrl,
+      user: updatedUser.toPublicJSON(),
+      isCloudinary: Boolean(cl),
+    });
+  } catch (err) {
+    console.error('Avatar upload error:', err);
+    res.status(500).json({ success: false, message: err.message || 'Failed to upload avatar' });
+  }
+};
+
+/**
+ * DELETE /api/auth/avatar
+ * Removes user avatar and resets back to initials
+ */
+exports.deleteAvatar = async (req, res) => {
+  try {
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      { avatar: null },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: 'Avatar removed successfully',
+      user: updatedUser.toPublicJSON(),
+    });
+  } catch (err) {
+    console.error('Avatar delete error:', err);
+    res.status(500).json({ success: false, message: 'Failed to remove avatar' });
   }
 };
 

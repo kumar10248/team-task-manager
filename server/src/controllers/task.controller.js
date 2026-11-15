@@ -143,7 +143,7 @@ exports.createTask = async (req, res) => {
 
     const populated = await Task.findById(task._id)
       .populate('assignedTo', 'name email avatar')
-      .populate('createdBy', 'name email');
+      .populate('createdBy', 'name email avatar');
 
     // Send notification to each assigned user (except creator)
     for (const assigneeId of assignees) {
@@ -241,7 +241,7 @@ exports.getTask = async (req, res) => {
 
     const task = await Task.findOne({ _id: taskId, project: projectId })
       .populate('assignedTo', 'name email avatar')
-      .populate('createdBy', 'name email')
+      .populate('createdBy', 'name email avatar')
       .populate('comments.user', 'name email avatar')
       .lean();
 
@@ -417,7 +417,7 @@ exports.updateTask = async (req, res) => {
 
     const populated = await Task.findById(task._id)
       .populate('assignedTo', 'name email avatar')
-      .populate('createdBy', 'name email')
+      .populate('createdBy', 'name email avatar')
       .populate('comments.user', 'name email avatar');
 
     res.json({ success: true, task: populated });

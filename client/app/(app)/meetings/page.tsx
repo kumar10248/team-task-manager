@@ -212,7 +212,7 @@ function MeetingsContent() {
       if (res.success) {
         toast('Instant meeting created! Joining now…', 'success');
         setMeetings((prev) => [res.meeting, ...prev]);
-        const personalizedLink = getPersonalizedMeetLink(meetLink, user.name);
+        const personalizedLink = getPersonalizedMeetLink(meetLink, user.name, user.avatar);
         window.open(personalizedLink, '_blank', 'noopener,noreferrer');
       }
     } catch (err: unknown) {
@@ -651,7 +651,39 @@ function MeetingsContent() {
                 </div>
                 <span>•</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Users size={14} />
+                  {activeHeroMeeting.participants && activeHeroMeeting.participants.length > 0 ? (
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      {activeHeroMeeting.participants.slice(0, 3).map((p, idx) => (
+                        <div
+                          key={p._id || idx}
+                          title={p.name}
+                          style={{
+                            width: 20,
+                            height: 20,
+                            borderRadius: '50%',
+                            background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+                            color: '#fff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 9,
+                            fontWeight: 600,
+                            marginLeft: idx > 0 ? -6 : 0,
+                            border: '1.5px solid #0f111a',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {p.avatar ? (
+                            <img src={p.avatar} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ) : (
+                            p.name?.[0]?.toUpperCase()
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <Users size={14} />
+                  )}
                   <span>{activeHeroMeeting.participants?.length || 1} participant(s)</span>
                 </div>
               </div>
@@ -676,7 +708,7 @@ function MeetingsContent() {
               </button>
 
               <a
-                href={getPersonalizedMeetLink(activeHeroMeeting.meetLink, user?.name)}
+                href={getPersonalizedMeetLink(activeHeroMeeting.meetLink, user?.name, user?.avatar)}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
@@ -1106,9 +1138,14 @@ function MeetingsContent() {
                             fontWeight: 600,
                             marginLeft: idx > 0 ? -6 : 0,
                             border: '2px solid #0f111a',
+                            overflow: 'hidden',
                           }}
                         >
-                          {p.name?.[0]?.toUpperCase()}
+                          {p.avatar ? (
+                            <img src={p.avatar} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ) : (
+                            p.name?.[0]?.toUpperCase()
+                          )}
                         </div>
                       ))}
                       {(m.participants?.length || 0) > 4 && (
@@ -1155,7 +1192,7 @@ function MeetingsContent() {
                       )}
 
                       <a
-                        href={getPersonalizedMeetLink(m.meetLink, user?.name)}
+                        href={getPersonalizedMeetLink(m.meetLink, user?.name, user?.avatar)}
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{
@@ -1509,8 +1546,16 @@ function MeetingsContent() {
                           cursor: 'pointer',
                         }}
                       >
-                        {isSelected ? <Check size={12} color="var(--accent-primary)" /> : null}
-                        {m.name}
+                        {m.avatar ? (
+                          <img src={m.avatar} alt={m.name} style={{ width: 16, height: 16, borderRadius: '50%', objectFit: 'cover' }} />
+                        ) : isSelected ? (
+                          <Check size={12} color="var(--accent-primary)" />
+                        ) : (
+                          <div style={{ width: 16, height: 16, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9 }}>
+                            {m.name?.[0]?.toUpperCase()}
+                          </div>
+                        )}
+                        <span>{m.name}</span>
                       </button>
                     );
                   })}
@@ -1621,7 +1666,12 @@ function MeetingsContent() {
                     })}
                   </span>
                   <span>•</span>
-                  <span>Host: {viewingMeeting.createdBy?.name || 'Organizer'}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {viewingMeeting.createdBy?.avatar ? (
+                      <img src={viewingMeeting.createdBy.avatar} alt={viewingMeeting.createdBy.name} style={{ width: 18, height: 18, borderRadius: '50%', objectFit: 'cover' }} />
+                    ) : null}
+                    <span>Host: {viewingMeeting.createdBy?.name || 'Organizer'}</span>
+                  </div>
                 </div>
               </div>
 
@@ -1642,7 +1692,7 @@ function MeetingsContent() {
                 </button>
 
                 <a
-                  href={getPersonalizedMeetLink(viewingMeeting.meetLink, user?.name)}
+                  href={getPersonalizedMeetLink(viewingMeeting.meetLink, user?.name, user?.avatar)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="btn-primary"
@@ -1669,11 +1719,49 @@ function MeetingsContent() {
                   fontSize: 14,
                   color: 'var(--text-secondary)',
                   lineHeight: 1.6,
-                  marginBottom: 24,
+                  marginBottom: 16,
                 }}
               >
                 {viewingMeeting.description}
               </p>
+            )}
+
+            {/* Participants list */}
+            {viewingMeeting.participants && viewingMeeting.participants.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
+                  Participants ({viewingMeeting.participants.length}):
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  {viewingMeeting.participants.map((p, idx) => (
+                    <div
+                      key={p._id || idx}
+                      title={p.name}
+                      style={{
+                        width: 26,
+                        height: 26,
+                        borderRadius: '50%',
+                        background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+                        color: '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        marginLeft: idx > 0 ? -6 : 0,
+                        border: '2px solid #0f111a',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {p.avatar ? (
+                        <img src={p.avatar} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        p.name?.[0]?.toUpperCase()
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
 
             {/* Live Agenda Checklist */}

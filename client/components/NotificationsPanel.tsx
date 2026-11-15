@@ -143,7 +143,6 @@ export default function NotificationsPanel({ isOpen, onClose }: NotificationsPan
             ) : notifications.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: 14 }}>You&apos;re all caught up!</div>
             ) : notifications.map((n) => {
-              const userIcon = n.sender?.avatar || n.sender?.name?.[0]?.toUpperCase() || 'S';
               const userName = n.sender?.name || 'System';
               let Icon = Bell;
               let color = 'var(--text-muted)';
@@ -169,8 +168,16 @@ export default function NotificationsPanel({ isOpen, onClose }: NotificationsPan
                   onMouseLeave={(e) => { e.currentTarget.style.background = !n.isRead ? 'rgba(255,255,255,0.03)' : 'transparent'; }}
                 >
                   <div style={{ position: 'relative' }}>
-                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.02))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontFamily: 'Outfit, sans-serif', color: '#fff', fontWeight: 500 }}>
-                      {userIcon}
+                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.02))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontFamily: 'Outfit, sans-serif', color: '#fff', fontWeight: 500, overflow: 'hidden' }}>
+                      {n.sender?.avatar ? (
+                        <img
+                          src={n.sender.avatar}
+                          alt={userName}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                      ) : (
+                        n.sender?.name?.[0]?.toUpperCase() || 'S'
+                      )}
                     </div>
                     <div style={{ position: 'absolute', bottom: -4, right: -4, width: 20, height: 20, borderRadius: '50%', background: '#0a0a0f', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #0a0a0f' }}>
                       <Icon size={10} color={color} />

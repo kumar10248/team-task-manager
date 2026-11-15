@@ -40,7 +40,7 @@ exports.createProject = async (req, res) => {
       invitedBy: req.user._id,
     });
 
-    const populated = await Project.findById(project._id).populate('createdBy', 'name email').lean();
+    const populated = await Project.findById(project._id).populate('createdBy', 'name email avatar').lean();
     res.status(201).json({ success: true, project: populated });
   } catch (err) {
     if (err.name === 'ValidationError') {
@@ -62,7 +62,7 @@ exports.getProjects = async (req, res) => {
 
     const [projects, taskStatsAggregation] = await Promise.all([
       Project.find({ _id: { $in: projectIds } })
-        .populate('createdBy', 'name email')
+        .populate('createdBy', 'name email avatar')
         .sort({ createdAt: -1 })
         .lean(),
       Task.aggregate([
@@ -119,7 +119,7 @@ exports.getProject = async (req, res) => {
     const projectObjectId = new mongoose.Types.ObjectId(req.params.id);
 
     const [project, members, taskStats, taskTags] = await Promise.all([
-      Project.findById(req.params.id).populate('createdBy', 'name email').lean(),
+      Project.findById(req.params.id).populate('createdBy', 'name email avatar').lean(),
       ProjectMember.find({ project: req.params.id })
         .populate('user', 'name email avatar isClockedIn lastClockIn lastClockOut')
         .lean(),

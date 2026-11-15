@@ -53,6 +53,10 @@ const userSchema = new mongoose.Schema(
       enum: ['anyone', 'nobody', 'request'],
       default: 'anyone',
     },
+    isSuperAdmin: {
+      type: Boolean,
+      default: false,
+    },
     resetPasswordCode: {
       type: String,
       select: false,
@@ -99,6 +103,7 @@ userSchema.methods.toPublicJSON = function () {
     lastClockIn: this.lastClockIn,
     lastClockOut: this.lastClockOut,
     projectAddPrivacy: this.projectAddPrivacy || 'anyone',
+    isSuperAdmin: Boolean(this.isSuperAdmin),
     createdAt: this.createdAt,
   };
 };

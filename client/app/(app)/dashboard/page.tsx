@@ -45,6 +45,7 @@ interface TasksPerUser {
   userId: string;
   name: string;
   count: number;
+  avatar?: string | null;
 }
 
 interface TasksByStatus {
@@ -330,8 +331,12 @@ export default function DashboardPage(): ReactElement {
                     <div key={u.userId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px', background:'rgba(255,255,255,0.02)', borderRadius:10, border:'1px solid transparent', transition:'all 0.2s' }}
                          onMouseEnter={(e)=>e.currentTarget.style.borderColor='rgba(255,255,255,0.05)'}
                          onMouseLeave={(e)=>e.currentTarget.style.borderColor='transparent'}>
-                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontFamily: 'Outfit, sans-serif', color: '#fff', fontWeight: 600, flexShrink: 0 }}>
-                        {u.name?.[0]?.toUpperCase()}
+                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontFamily: 'Outfit, sans-serif', color: '#fff', fontWeight: 600, flexShrink: 0, overflow: 'hidden' }}>
+                        {u.avatar ? (
+                          <img src={u.avatar} alt={u.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          u.name?.[0]?.toUpperCase()
+                        )}
                       </div>
                       <div style={{ flex: 1, overflow: 'hidden' }}>
                         <div style={{ fontSize: 14, fontFamily:'Outfit, sans-serif', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -430,8 +435,12 @@ export default function DashboardPage(): ReactElement {
               {teamAttendance.map(member => (
                 <div key={member._id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px', background:'rgba(255,255,255,0.02)', borderRadius:12, border:'1px solid rgba(255,255,255,0.05)' }}>
                   <div style={{ position: 'relative' }}>
-                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontFamily: 'Outfit, sans-serif', color: '#fff', fontWeight: 600, flexShrink: 0 }}>
-                      {member.name?.[0]?.toUpperCase()}
+                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontFamily: 'Outfit, sans-serif', color: '#fff', fontWeight: 600, flexShrink: 0, overflow: 'hidden' }}>
+                      {member.avatar ? (
+                        <img src={member.avatar} alt={member.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        member.name?.[0]?.toUpperCase()
+                      )}
                     </div>
                     {/* Status Dot */}
                     <span style={{ position:'absolute', bottom:-2, right:-2, width:12, height:12, borderRadius:'50%', background: member.isClockedIn ? '#4ade80' : 'var(--text-muted)', border:'2px solid #0a0a0f', boxShadow: member.isClockedIn ? '0 0 8px #4ade80' : 'none' }} />
@@ -508,8 +517,12 @@ export default function DashboardPage(): ReactElement {
                     return (
                       <tr key={log._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
                         <td style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                          <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, flexShrink: 0 }}>
-                            {userInitial}
+                          <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, flexShrink: 0, overflow: 'hidden' }}>
+                            {log.user?.avatar ? (
+                              <img src={log.user.avatar} alt={userName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : (
+                              userInitial
+                            )}
                           </div>
                           <div>
                             <div style={{ color: 'var(--text-primary)', fontWeight: 500, fontSize: 14 }}>{userName}</div>
