@@ -201,13 +201,23 @@ exports.updateProject = async (req, res) => {
 
 /**
  * DELETE /api/projects/:id
- * Delete a project and all its tasks. Admin only.
+ * Delete a project and all its tasks. Creator/Owner only.
  */
 exports.deleteProject = async (req, res) => {
   try {
     const membership = await getMembership(req.params.id, req.user._id);
     if (!membership || membership.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+
+    const project = await Project.findById(req.params.id);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
+
+    // Only the project creator/owner can delete the project
+    if (project.createdBy.toString() !== req.user._id.toString()) {
+      return res
+        .status(403)
+        .json({ success: false, message: 'Only the project creator/owner can delete this project' });
     }
 
     await Project.findByIdAndDelete(req.params.id);
@@ -346,8 +356,42 @@ exports.updateMemberRole = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Admin access required' });
     }
 
-    // Cannot demote yourself if you're the only admin
-    if (req.params.userId === req.user._id.toString() && req.body.role !== 'admin') {
+    const project = await Project.findById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+
+    const ownerId = project.createdBy.toString();
+    const targetUserId = req.params.userId;
+    const currentUserId = req.user._id.toString();
+
+    // 1. The project creator/owner can never be demoted
+    if (targetUserId === ownerId && req.body.role !== 'admin') {
+      return res.status(400).json({
+        success: false,
+        message: 'The project creator/owner must remain an admin and cannot be demoted',
+      });
+    }
+
+    // 2. Only the project creator/owner can modify roles of other admins
+    const targetMembership = await getMembership(req.params.id, targetUserId);
+    if (!targetMembership) {
+      return res.status(404).json({ success: false, message: 'Member not found' });
+    }
+
+    if (
+      targetMembership.role === 'admin' &&
+      currentUserId !== ownerId &&
+      targetUserId !== currentUserId
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the project creator/owner can modify another admin’s role',
+      });
+    }
+
+    // 3. Cannot demote yourself if you're the only admin
+    if (targetUserId === currentUserId && req.body.role !== 'admin') {
       const adminCount = await ProjectMember.countDocuments({
         project: req.params.id,
         role: 'admin',
@@ -384,9 +428,42 @@ exports.removeMember = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Admin access required' });
     }
 
-    // Prevent removing last admin
-    const targetMembership = await getMembership(req.params.id, req.params.userId);
-    if (targetMembership?.role === 'admin') {
+    const project = await Project.findById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+
+    const ownerId = project.createdBy.toString();
+    const targetUserId = req.params.userId;
+    const currentUserId = req.user._id.toString();
+
+    // 1. The project creator/owner can never be removed from their project
+    if (targetUserId === ownerId) {
+      return res.status(400).json({
+        success: false,
+        message: 'The project creator/owner cannot be removed from the project',
+      });
+    }
+
+    // 2. Only the project creator/owner can remove another admin
+    const targetMembership = await getMembership(req.params.id, targetUserId);
+    if (!targetMembership) {
+      return res.status(404).json({ success: false, message: 'Member not found' });
+    }
+
+    if (
+      targetMembership.role === 'admin' &&
+      currentUserId !== ownerId &&
+      targetUserId !== currentUserId
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the project creator/owner can remove an admin',
+      });
+    }
+
+    // 3. Prevent removing the last admin
+    if (targetMembership.role === 'admin') {
       const adminCount = await ProjectMember.countDocuments({
         project: req.params.id,
         role: 'admin',

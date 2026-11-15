@@ -1949,6 +1949,11 @@ export default function ProjectDetailPage() {
   const saveRoleChange = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editingMember) return;
+    const ownerId = typeof project?.createdBy === 'object' ? project?.createdBy?._id : project?.createdBy;
+    if (editingMember.user?._id === ownerId && editingMember.role !== 'admin') {
+      toast('The project creator/owner cannot be demoted', 'error');
+      return;
+    }
     setSaving(true);
     try {
       await projectsApi.updateMemberRole(id, editingMember.user._id, { role: editingMember.role });
@@ -1963,6 +1968,11 @@ export default function ProjectDetailPage() {
   };
 
   const removeMember = async (uid: string) => {
+    const ownerId = typeof project?.createdBy === 'object' ? project?.createdBy?._id : project?.createdBy;
+    if (uid === ownerId) {
+      toast('The project creator/owner cannot be removed from the project', 'error');
+      return;
+    }
     try {
       await projectsApi.removeMember(id, uid);
       toast('Member removed');
@@ -2612,7 +2622,9 @@ export default function ProjectDetailPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                 <div style={{ width: 16, height: 16, borderRadius: '50%', background: project?.color ?? 'var(--accent-primary)', flexShrink: 0, boxShadow: `0 0 15px ${project?.color ?? 'var(--accent-primary)'}` }} />
                 <h1 style={{ fontFamily: 'Fraunces, serif', fontSize: 36, fontWeight: 400, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>{project?.name}</h1>
-                <span className={`badge badge-${myRole}`} style={{ fontSize: 13 }}>{myRole}</span>
+                <span className={`badge badge-${myRole}`} style={{ fontSize: 13 }}>
+                  {project && (typeof project.createdBy === 'object' ? project.createdBy?._id : project.createdBy) === user?._id ? 'Owner' : myRole}
+                </span>
               </div>
               <div style={{ display: 'flex', gap: 12 }}>
                 <button
@@ -3045,64 +3057,91 @@ export default function ProjectDetailPage() {
           {/* ══ Members view ══ */}
           {tab === 'members' && (
             <div style={{ maxWidth: 800 }}>
-              {members.map((m) => (
-                <div key={m._id} style={{ 
-                  background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 12,
-                  padding: '16px 24px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 16,
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)'; }}
-                >
-                  <div style={{ position: 'relative' }}>
-                    <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontFamily: 'Outfit, sans-serif', color: '#fff', fontWeight: 600, flexShrink: 0, overflow: 'hidden' }}>
-                      {m.user?.avatar ? (
-                        <img src={m.user.avatar} alt={m.user.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      ) : (
-                        m.user?.name?.[0]?.toUpperCase()
-                      )}
-                    </div>
-                    {/* Status Dot */}
-                    <span style={{ position:'absolute', bottom:-2, right:-2, width:12, height:12, borderRadius:'50%', background: m.user?.isClockedIn ? '#4ade80' : 'var(--text-muted)', border:'2px solid #0a0a0f', boxShadow: m.user?.isClockedIn ? '0 0 8px #4ade80' : 'none' }} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 15, fontFamily: 'Outfit, sans-serif', color: 'var(--text-primary)', fontWeight: 500, marginBottom: 4 }}>{m.user?.name}</div>
-                    <div style={{ fontSize: 13, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)' }}>{m.user?.email}</div>
-                    <div style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)', marginTop: 4 }}>
-                      {m.user?.isClockedIn 
-                        ? `Clocked in at ${m.user?.lastClockIn ? new Date(m.user.lastClockIn).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Unknown'}` 
-                        : m.user?.lastClockOut 
-                          ? `Clocked out at ${new Date(m.user.lastClockOut).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`
-                          : 'Offline'}
-                    </div>
-                  </div>
+              {members.map((m) => {
+                const ownerId = typeof project?.createdBy === 'object' ? project?.createdBy?._id : project?.createdBy;
+                const isMemberOwner = Boolean(ownerId && m.user?._id === ownerId);
+                const isCurrentUserOwner = Boolean(ownerId && user?._id && ownerId === user._id);
+                const isSelf = m.user?._id === user?._id;
+                // Only project owner can manage other admins. Non-owner admins can only manage members.
+                // The project creator/owner can never be edited or removed by anyone!
+                const canManageMember = myRole === 'admin' && !isSelf && !isMemberOwner && (isCurrentUserOwner || m.role !== 'admin');
 
-                  <span className={`badge badge-${m.role}`} style={{ fontSize: 13 }}>{m.role}</span>
-
-                  {myRole === 'admin' && m.user?._id !== user?._id && (
-                    <div style={{ display: 'flex', gap: 12 }}>
-                      <button
-                        onClick={() => setEditingMember({ ...m })}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 8, borderRadius: 8, transition: 'all 0.2s' }}
-                        onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
-                        title="Change role"
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button
-                        onClick={() => removeMember(m.user._id)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 8, borderRadius: 8, transition: 'all 0.2s' }}
-                        onMouseEnter={(e) => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(248, 113, 113, 0.1)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
-                        title="Remove member"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                return (
+                  <div key={m._id} style={{ 
+                    background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 12,
+                    padding: '16px 24px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 16,
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)'; }}
+                  >
+                    <div style={{ position: 'relative' }}>
+                      <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontFamily: 'Outfit, sans-serif', color: '#fff', fontWeight: 600, flexShrink: 0, overflow: 'hidden' }}>
+                        {m.user?.avatar ? (
+                          <img src={m.user.avatar} alt={m.user.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          m.user?.name?.[0]?.toUpperCase()
+                        )}
+                      </div>
+                      {/* Status Dot */}
+                      <span style={{ position:'absolute', bottom:-2, right:-2, width:12, height:12, borderRadius:'50%', background: m.user?.isClockedIn ? '#4ade80' : 'var(--text-muted)', border:'2px solid #0a0a0f', boxShadow: m.user?.isClockedIn ? '0 0 8px #4ade80' : 'none' }} />
                     </div>
-                  )}
-                </div>
-              ))}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <div style={{ fontSize: 15, fontFamily: 'Outfit, sans-serif', color: 'var(--text-primary)', fontWeight: 500 }}>{m.user?.name}</div>
+                        {isMemberOwner && (
+                          <span style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.06em',
+                            padding: '2px 8px',
+                            borderRadius: 12,
+                            background: 'rgba(251, 191, 36, 0.15)',
+                            color: '#fbbf24',
+                            border: '1px solid rgba(251, 191, 36, 0.35)',
+                          }}>
+                            Owner
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 13, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)' }}>{m.user?.email}</div>
+                      <div style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)', marginTop: 4 }}>
+                        {m.user?.isClockedIn 
+                          ? `Clocked in at ${m.user?.lastClockIn ? new Date(m.user.lastClockIn).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Unknown'}` 
+                          : m.user?.lastClockOut 
+                            ? `Clocked out at ${new Date(m.user.lastClockOut).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`
+                            : 'Offline'}
+                      </div>
+                    </div>
+
+                    <span className={`badge badge-${m.role}`} style={{ fontSize: 13 }}>{m.role}</span>
+
+                    {canManageMember && (
+                      <div style={{ display: 'flex', gap: 12 }}>
+                        <button
+                          onClick={() => setEditingMember({ ...m })}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 8, borderRadius: 8, transition: 'all 0.2s' }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
+                          title="Change role"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button
+                          onClick={() => removeMember(m.user._id)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 8, borderRadius: 8, transition: 'all 0.2s' }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(248, 113, 113, 0.1)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
+                          title="Remove member"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 

@@ -18,6 +18,7 @@ interface Project {
   description?: string;
   color?: string;
   status?: 'active' | 'archived' | 'completed';
+  createdBy?: { _id: string; name?: string; email?: string } | string;
   myRole: 'admin' | 'member';
   taskStats?: TaskStats;
 }
@@ -32,18 +33,21 @@ const FORM_FIELDS: FormField[] = [
 
 interface ProjectCardProps {
   project: Project;
+  currentUserId?: string;
   onDelete: (p: Project) => void;
   onArchive: (p: Project) => void;
   onRestore: (p: Project) => void;
   onComplete: (p: Project) => void;
 }
 
-function ProjectCard({ project, onDelete, onArchive, onRestore, onComplete }: ProjectCardProps): ReactElement {
+function ProjectCard({ project, currentUserId, onDelete, onArchive, onRestore, onComplete }: ProjectCardProps): ReactElement {
   const total = project.taskStats?.total ?? 0;
   const done  = project.taskStats?.done  ?? 0;
   const pct   = total ? Math.round((done / total) * 100) : 0;
   const baseColor = project.color ?? 'var(--accent-primary)';
   const status = project.status || 'active';
+  const ownerId = typeof project.createdBy === 'object' ? project.createdBy?._id : project.createdBy;
+  const isOwner = Boolean(ownerId && currentUserId && ownerId === currentUserId);
 
   return (
     <div className="glass-panel" style={{ padding:0, overflow:'hidden', transition:'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)', cursor:'pointer', position: 'relative' }}
@@ -92,7 +96,9 @@ function ProjectCard({ project, onDelete, onArchive, onRestore, onComplete }: Pr
                 {status}
               </span>
             )}
-            <span className={`badge badge-${project.myRole}`}>{project.myRole}</span>
+            <span className={`badge badge-${project.myRole}`}>
+              {isOwner ? 'owner' : project.myRole}
+            </span>
           </div>
         </div>
         
@@ -148,14 +154,16 @@ function ProjectCard({ project, onDelete, onArchive, onRestore, onComplete }: Pr
                   <Archive size={16} />
                 </button>
               )}
-              <button onClick={(e) => { e.preventDefault(); onDelete(project); }}
-                style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', display:'flex', padding: 6, borderRadius: 6, transition:'all 0.2s' }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(248, 113, 113, 0.1)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
-                title="Delete project"
-              >
-                <Trash2 size={16} />
-              </button>
+              {isOwner && (
+                <button onClick={(e) => { e.preventDefault(); onDelete(project); }}
+                  style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', display:'flex', padding: 6, borderRadius: 6, transition:'all 0.2s' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(248, 113, 113, 0.1)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
+                  title="Delete project"
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -551,6 +559,7 @@ export default function ProjectsPage(): ReactElement {
                 <ProjectCard
                   key={p._id}
                   project={p}
+                  currentUserId={user?._id}
                   onDelete={setDeleteTarget}
                   onArchive={archiveProject}
                   onRestore={restoreProject}
