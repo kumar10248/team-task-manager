@@ -44,6 +44,7 @@ export default function BillingPage() {
   const [subscribingPlan, setSubscribingPlan] = useState<'standard' | 'pro' | null>(null);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [isConfigured, setIsConfigured] = useState(false);
+  const [razorpayKeyId, setRazorpayKeyId] = useState('');
   const [canceling, setCanceling] = useState(false);
 
   const syncSubscription = useCallback((sub: Subscription | null) => {
@@ -69,6 +70,7 @@ export default function BillingPage() {
         if (active && res.success) {
           syncSubscription(res.subscription);
           setIsConfigured(res.isConfigured);
+          setRazorpayKeyId(res.razorpayKeyId || '');
         }
       })
       .catch((err) => {
@@ -105,12 +107,12 @@ export default function BillingPage() {
 
       // 3. Configure Razorpay modal options
       const options: RazorpayOptions = {
-        key: orderRes.razorpayKeyId,
+        key: orderRes.razorpayKeyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_U0Y6TMtnaOxcqC',
         amount: orderRes.amountInPaise,
         currency: orderRes.currency || 'INR',
         name: 'TaskForge CRM',
         description: `${orderRes.plan.name} - ₹${orderRes.amount.toLocaleString('en-IN')}/month`,
-        order_id: orderRes.orderId,
+        order_id: (orderRes as any).order_id || orderRes.orderId,
         prefill: {
           name: user?.name || '',
           email: user?.email || '',
@@ -120,7 +122,18 @@ export default function BillingPage() {
         },
         config: {
           display: {
-            sequence: ['upi', 'card', 'netbanking', 'wallet'],
+            blocks: {
+              upi: {
+                name: 'Pay using UPI (QR / UPI ID)',
+                instruments: [
+                  {
+                    method: 'upi',
+                    flows: ['collect', 'qr', 'intent'],
+                  },
+                ],
+              },
+            },
+            sequence: ['block.upi', 'card', 'netbanking', 'wallet'],
             preferences: {
               show_default_blocks: true,
             },
@@ -238,6 +251,42 @@ export default function BillingPage() {
             <Sparkles size={18} color="#f87171" style={{ flexShrink: 0 }} />
             <div style={{ fontSize: 13, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)' }}>
               <strong style={{ color: '#f87171' }}>Razorpay API Keys Needed:</strong> Set your <code style={{ color: '#c084fc', background: 'rgba(255,255,255,0.06)', padding: '2px 5px', borderRadius: 4 }}>RAZORPAY_KEY_ID</code> and <code style={{ color: '#c084fc', background: 'rgba(255,255,255,0.06)', padding: '2px 5px', borderRadius: 4 }}>RAZORPAY_KEY_SECRET</code> in <code style={{ color: '#c084fc', background: 'rgba(255,255,255,0.06)', padding: '2px 5px', borderRadius: 4 }}>server/.env</code> to enable live Razorpay Checkout modal with UPI, Cards, and Netbanking.
+            </div>
+          </div>
+        )}
+
+        {/* Razorpay Sandbox Test Mode Guide */}
+        {isConfigured && razorpayKeyId?.startsWith('rzp_test_') && (
+          <div style={{
+            background: 'rgba(99, 102, 241, 0.08)',
+            border: '1px solid rgba(129, 140, 248, 0.3)',
+            borderRadius: 14,
+            padding: '16px 20px',
+            marginBottom: 28,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: 'rgba(129, 140, 248, 0.25)', color: '#c7d2fe', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                🧪 Razorpay Test Mode Sandbox Active
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                Test Key: <code style={{ color: '#a5b4fc', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: 4 }}>{razorpayKeyId}</code>
+              </span>
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, fontFamily: 'Outfit, sans-serif' }}>
+              <p style={{ margin: '0 0 6px 0' }}>
+                <strong style={{ color: '#e0e7ff' }}>Why scanning the QR code says &quot;Receiver UPI is invalid or inactive&quot;:</strong> Because this is Razorpay Test Mode. Real banking apps (PhonePe, Google Pay, Paytm) verify accounts against NPCI; since test accounts do not hold real bank funds, NPCI automatically marks the sandbox QR code as inactive.
+              </p>
+              <p style={{ margin: '0 0 4px 0', color: 'var(--text-primary)', fontWeight: 600 }}>
+                How to test simulated payments in Test Mode:
+              </p>
+              <ul style={{ margin: '0 0 8px 18px', padding: 0 }}>
+                <li><strong>Cards (Fastest &amp; Recommended):</strong> Click <em>Cards</em> in the checkout modal &rarr; Enter card <code style={{ color: '#fff', background: 'rgba(255,255,255,0.1)', padding: '1px 5px', borderRadius: 4 }}>4012 0000 0000 0002</code>, any future expiry (e.g., 12/28), CVV <code style={{ color: '#fff', background: 'rgba(255,255,255,0.1)', padding: '1px 5px', borderRadius: 4 }}>123</code> &rarr; Click <em>Success</em> on Razorpay&apos;s simulation screen.</li>
+                <li><strong>Netbanking:</strong> Click <em>Netbanking</em> &rarr; Select any bank &rarr; Click <em>Success</em>.</li>
+                <li><strong>UPI Simulation:</strong> Under UPI, enter test VPA <code style={{ color: '#fff', background: 'rgba(255,255,255,0.1)', padding: '1px 5px', borderRadius: 4 }}>success@razorpay</code> to test an instant success response.</li>
+              </ul>
+              <div style={{ fontSize: 12, color: '#34d399', display: 'flex', alignItems: 'center', gap: 6, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
+                <span>✨ <strong>Want real PhonePe/GPay QR code scanning?</strong> Switch to <strong>Live Mode keys</strong> (<code style={{ color: '#6ee7b7' }}>rzp_live_...</code>) from your Razorpay Dashboard. Live QR codes work with all real banking apps.</span>
+              </div>
             </div>
           </div>
         )}

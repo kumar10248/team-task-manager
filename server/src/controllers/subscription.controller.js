@@ -218,6 +218,7 @@ exports.createOrder = async (req, res) => {
 
     res.json({
       success: true,
+      order_id: order.id,
       orderId: order.id,
       amount: selectedPlan.price,
       amountInPaise: selectedPlan.amountInPaise,
@@ -239,20 +240,32 @@ exports.createOrder = async (req, res) => {
  */
 exports.verifyPayment = async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan } = req.body;
+    const {
+      razorpay_order_id,
+      order_id,
+      razorpay_payment_id,
+      payment_id,
+      razorpay_signature,
+      signature,
+      plan,
+    } = req.body || {};
+
+    const resolvedOrderId = razorpay_order_id || order_id;
+    const resolvedPaymentId = razorpay_payment_id || payment_id;
+    const resolvedSignature = razorpay_signature || signature;
 
     if (!plan || !PLANS[plan] || plan === 'free') {
       return res.status(400).json({ success: false, message: 'Invalid plan' });
     }
 
-    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    if (!resolvedOrderId || !resolvedPaymentId || !resolvedSignature) {
       return res.status(400).json({
         success: false,
         message: 'Missing Razorpay payment verification parameters',
       });
     }
 
-    const key_secret = process.env.RAZORPAY_KEY_SECRET;
+    const key_secret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
     if (!key_secret) {
       return res.status(500).json({
         success: false,
@@ -262,10 +275,20 @@ exports.verifyPayment = async (req, res) => {
 
     // Verify HMAC-SHA256 signature
     const hmac = crypto.createHmac('sha256', key_secret);
-    hmac.update(`${razorpay_order_id}|${razorpay_payment_id}`);
+    hmac.update(`${resolvedOrderId}|${resolvedPaymentId}`);
     const expectedSignature = hmac.digest('hex');
 
-    if (expectedSignature !== razorpay_signature) {
+    let signaturesMatch = false;
+    try {
+      signaturesMatch = crypto.timingSafeEqual(
+        Buffer.from(expectedSignature, 'utf-8'),
+        Buffer.from(resolvedSignature, 'utf-8')
+      );
+    } catch {
+      signaturesMatch = expectedSignature === resolvedSignature;
+    }
+
+    if (!signaturesMatch) {
       return res.status(400).json({
         success: false,
         message: 'Payment verification failed: invalid signature. Payment could not be confirmed.',
@@ -287,13 +310,13 @@ exports.verifyPayment = async (req, res) => {
         billingCycle: 'monthly',
         currentPeriodStart: now,
         currentPeriodEnd: periodEnd,
-        razorpayOrderId: razorpay_order_id,
-        razorpayPaymentId: razorpay_payment_id,
-        razorpaySignature: razorpay_signature,
+        razorpayOrderId: resolvedOrderId,
+        razorpayPaymentId: resolvedPaymentId,
+        razorpaySignature: resolvedSignature,
         $push: {
           history: {
-            paymentId: razorpay_payment_id,
-            orderId: razorpay_order_id,
+            paymentId: resolvedPaymentId,
+            orderId: resolvedOrderId,
             amount: selectedPlan.price,
             plan: selectedPlan.name,
             paidAt: now,

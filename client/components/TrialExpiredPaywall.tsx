@@ -53,12 +53,12 @@ export default function TrialExpiredPaywall() {
       }
 
       const options: RazorpayOptions = {
-        key: orderRes.razorpayKeyId,
+        key: orderRes.razorpayKeyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_U0Y6TMtnaOxcqC',
         amount: orderRes.amountInPaise,
         currency: orderRes.currency || 'INR',
         name: 'TaskForge CRM',
         description: `${orderRes.plan.name} - ₹${orderRes.amount.toLocaleString('en-IN')}/month`,
-        order_id: orderRes.orderId,
+        order_id: (orderRes as any).order_id || orderRes.orderId,
         prefill: {
           name: user?.name || '',
           email: user?.email || '',
@@ -68,7 +68,18 @@ export default function TrialExpiredPaywall() {
         },
         config: {
           display: {
-            sequence: ['upi', 'card', 'netbanking', 'wallet'],
+            blocks: {
+              upi: {
+                name: 'Pay using UPI (QR / UPI ID)',
+                instruments: [
+                  {
+                    method: 'upi',
+                    flows: ['collect', 'qr', 'intent'],
+                  },
+                ],
+              },
+            },
+            sequence: ['block.upi', 'card', 'netbanking', 'wallet'],
             preferences: {
               show_default_blocks: true,
             },

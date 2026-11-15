@@ -1,6 +1,8 @@
 // lib/api.ts — All API interactions centralized here.
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ||'https://team-task-manager-5ywl.onrender.com';
+const RAW_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'https://team-task-manager-5ywl.onrender.com').trim();
+// Strip trailing slash and trailing /api to prevent double /api/api
+const BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, '').replace(/\/+$/, '');
 
 // ─── Domain types ─────────────────────────────────────────────────────────────
 
@@ -125,7 +127,14 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
     ...(options.headers as Record<string, string> | undefined),
   };
 
-  const res = await fetch(`${BASE_URL}/api${path}`, {
+  // Ensure clean path and avoid duplicate /api prefix
+  const cleanPath = path.startsWith('/api/')
+    ? path.replace(/^\/api/, '')
+    : path.startsWith('/')
+    ? path
+    : `/${path}`;
+
+  const res = await fetch(`${BASE_URL}/api${cleanPath}`, {
     ...options,
     headers,
     credentials: 'include', // Ensures HTTP-only cookies are sent and received
@@ -468,6 +477,15 @@ export interface RazorpayOptions {
   };
   config?: {
     display?: {
+      blocks?: Record<string, {
+        name?: string;
+        instruments?: Array<{
+          method?: string;
+          flows?: string[];
+          banks?: string[];
+          wallets?: string[];
+        }>;
+      }>;
       sequence?: string[];
       preferences?: {
         show_default_blocks?: boolean;
@@ -496,6 +514,37 @@ declare global {
     Razorpay?: new (options: RazorpayOptions) => RazorpayInstance;
   }
 }
+
+export interface RazorpayStandardOrderResponse {
+  success: boolean;
+  order_id: string;
+  orderId?: string;
+  amount: number;
+  currency: string;
+  key_id?: string;
+  receipt?: string;
+  message?: string;
+}
+
+export interface RazorpayStandardVerifyResponse {
+  success: boolean;
+  isPaid: boolean;
+  message: string;
+  order_id?: string;
+  payment_id?: string;
+  subscription?: Subscription;
+}
+
+export const razorpayApi = {
+  createOrder: (data: { amount: number; currency?: string; receipt?: string; plan?: string; notes?: Record<string, string> }) =>
+    post<RazorpayStandardOrderResponse>('/create-order', data),
+  verifyPayment: (data: {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+    plan?: string;
+  }) => post<RazorpayStandardVerifyResponse>('/verify-payment', data),
+};
 
 export const subscriptionApi = {
   get: () => get<SubscriptionResponse>('/subscriptions'),

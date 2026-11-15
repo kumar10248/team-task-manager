@@ -53,3 +53,27 @@ exports.protect = async (req, res, next) => {
     return res.status(401).json({ success: false, message: err.message || 'Authentication error' });
   }
 };
+
+/**
+ * optionalAuth — attaches req.user if a valid token is present, but doesn't block if absent
+ */
+exports.optionalAuth = async (req, res, next) => {
+  try {
+    let token;
+    if (req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
+    } else if (req.cookies?.token) {
+      token = req.cookies.token;
+    }
+    if (token && token !== 'null' && token !== 'undefined' && token !== 'Bearer') {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      if (decoded && decoded.id) {
+        const user = await User.findById(decoded.id);
+        if (user && user.isActive) {
+          req.user = user;
+        }
+      }
+    }
+  } catch {}
+  next();
+};
