@@ -221,9 +221,9 @@ export default function SettingsPage(): ReactElement {
   ];
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)', position: 'relative' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', width: '100%', flex: 1, background: 'var(--bg-base)', position: 'relative' }}>
       <Sidebar />
-      <main style={{ flex: 1, padding: '40px 48px', overflow: 'auto', position: 'relative', zIndex: 1 }}>
+      <main style={{ flex: 1, minWidth: 0, width: '100%', padding: '40px 48px', overflow: 'auto', position: 'relative', zIndex: 1 }}>
         
         {/* Subtle background glow */}
         <div style={{ position:'absolute', top:'0%', right:'0%', width:'50vw', height:'50vw', background:'radial-gradient(circle, rgba(192, 132, 252, 0.04) 0%, transparent 60%)', filter:'blur(80px)', zIndex:-1, pointerEvents:'none' }} />

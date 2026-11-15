@@ -210,7 +210,7 @@ export default function DashboardPage(): ReactElement {
 
   if (authLoading || loading) {
     return (
-      <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
+      <div style={{ display: 'flex', minHeight: '100vh', width: '100%', flex: 1, background: 'var(--bg-base)' }}>
         <Sidebar />
         <DashboardSkeleton />
       </div>
@@ -232,9 +232,9 @@ export default function DashboardPage(): ReactElement {
   const completion = totalTasks ? Math.round((doneCount / totalTasks) * 100) : 0;
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)', position:'relative' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', width: '100%', flex: 1, background: 'var(--bg-base)', position:'relative' }}>
       <Sidebar />
-      <main style={{ flex: 1, padding: '40px 48px', overflow: 'auto', position:'relative', zIndex:1 }}>
+      <main style={{ flex: 1, minWidth: 0, width: '100%', padding: '40px 48px', overflow: 'auto', position:'relative', zIndex:1 }}>
         
         {/* Subtle background glow for the main area */}
         <div style={{ position:'absolute', top:'-10%', left:'50%', transform:'translateX(-50%)', width:'60vw', height:'40vw', background:'radial-gradient(circle, rgba(129, 140, 248, 0.05) 0%, transparent 60%)', filter:'blur(80px)', zIndex:-1, pointerEvents:'none' }} />

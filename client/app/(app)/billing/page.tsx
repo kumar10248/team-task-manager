@@ -204,10 +204,10 @@ export default function BillingPage() {
   };
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', width: '100%', flex: 1, background: 'var(--bg-base)' }}>
       <Sidebar />
 
-      <main style={{ flex: 1, padding: '40px 48px', overflowY: 'auto' }}>
+      <main style={{ flex: 1, minWidth: 0, width: '100%', padding: '40px 48px', overflowY: 'auto' }}>
         {/* Page Header */}
         <div style={{ marginBottom: 32 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>

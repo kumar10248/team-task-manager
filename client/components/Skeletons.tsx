@@ -2,7 +2,7 @@ import React from 'react';
 
 export function DashboardSkeleton() {
   return (
-    <div className="animate-fade-in" style={{ padding: '40px 48px', flex: 1 }}>
+    <div className="animate-fade-in" style={{ padding: '40px 48px', flex: 1, minWidth: 0, width: '100%' }}>
       {/* Header Skeleton */}
       <div style={{ marginBottom: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
@@ -55,7 +55,7 @@ export function DashboardSkeleton() {
 
 export function ProjectsSkeleton() {
   return (
-    <div className="animate-fade-in" style={{ padding: '40px 48px', flex: 1 }}>
+    <div className="animate-fade-in" style={{ padding: '40px 48px', flex: 1, minWidth: 0, width: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 40 }}>
         <div>
           <div className="skeleton" style={{ width: 80, height: 16, marginBottom: 12 }} />
@@ -87,7 +87,7 @@ export function ProjectsSkeleton() {
 
 export function BoardSkeleton() {
   return (
-    <div className="animate-fade-in" style={{ padding: '40px 48px', flex: 1 }}>
+    <div className="animate-fade-in" style={{ padding: '40px 48px', flex: 1, minWidth: 0, width: '100%' }}>
       {/* Header */}
       <div style={{ marginBottom: 32 }}>
         <div className="skeleton" style={{ width: 100, height: 16, marginBottom: 12 }} />
@@ -122,7 +122,7 @@ export function BoardSkeleton() {
 
 export function TasksTableSkeleton() {
   return (
-    <div className="animate-fade-in" style={{ padding: '40px 48px', flex: 1 }}>
+    <div className="animate-fade-in" style={{ padding: '40px 48px', flex: 1, minWidth: 0, width: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 40 }}>
         <div>
           <div className="skeleton" style={{ width: 80, height: 16, marginBottom: 12 }} />

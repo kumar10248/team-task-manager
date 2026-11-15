@@ -415,9 +415,9 @@ function MeetingsContent() {
 
   if (authLoading || (!user && loading)) {
     return (
-      <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-canvas)' }}>
+      <div style={{ display: 'flex', minHeight: '100vh', width: '100%', flex: 1, background: 'var(--bg-canvas)' }}>
         <Sidebar />
-        <main style={{ flex: 1, padding: '40px 48px' }}>
+        <main style={{ flex: 1, minWidth: 0, width: '100%', padding: '40px 48px' }}>
           <div className="glass-panel" style={{ height: 260, animation: 'pulse 1.5s infinite', opacity: 0.5 }} />
         </main>
       </div>
@@ -425,10 +425,10 @@ function MeetingsContent() {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-canvas)' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', width: '100%', flex: 1, background: 'var(--bg-canvas)' }}>
       <Sidebar />
 
-      <main style={{ flex: 1, padding: '40px 48px', overflowY: 'auto' }}>
+      <main style={{ flex: 1, minWidth: 0, width: '100%', padding: '40px 48px', overflowY: 'auto' }}>
         {/* ── Header ── */}
         <div
           style={{

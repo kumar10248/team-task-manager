@@ -191,9 +191,9 @@ export default function SuperAdminPage() {
 
   if (accessDenied) {
     return (
-      <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
+      <div style={{ display: 'flex', minHeight: '100vh', width: '100%', flex: 1, background: 'var(--bg-base)' }}>
         <Sidebar />
-        <main style={{ flex: 1, padding: '60px 44px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <main style={{ flex: 1, minWidth: 0, width: '100%', padding: '60px 44px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{
             maxWidth: 520,
             width: '100%',
@@ -260,10 +260,10 @@ export default function SuperAdminPage() {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', width: '100%', flex: 1, background: 'var(--bg-base)' }}>
       <Sidebar />
 
-      <main style={{ flex: 1, padding: '36px 44px', overflowY: 'auto' }}>
+      <main style={{ flex: 1, minWidth: 0, width: '100%', padding: '36px 44px', overflowY: 'auto' }}>
         {/* Page Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28, flexWrap: 'wrap', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>

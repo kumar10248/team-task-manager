@@ -185,7 +185,7 @@ export default function MyTasksPage(): ReactElement {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
+      <div style={{ display: 'flex', minHeight: '100vh', width: '100%', flex: 1, background: 'var(--bg-base)' }}>
         <Sidebar />
         <TasksTableSkeleton />
       </div>
@@ -193,9 +193,9 @@ export default function MyTasksPage(): ReactElement {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)', position: 'relative' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', width: '100%', flex: 1, background: 'var(--bg-base)', position: 'relative' }}>
       <Sidebar />
-      <main style={{ flex: 1, padding: '40px 48px', overflow: 'auto', position: 'relative', zIndex: 1 }}>
+      <main style={{ flex: 1, minWidth: 0, width: '100%', padding: '40px 48px', overflow: 'auto', position: 'relative', zIndex: 1 }}>
         {/* Subtle background glow */}
         <div style={{ position:'absolute', top:'-10%', left:'50%', transform:'translateX(-50%)', width:'60vw', height:'40vw', background:'radial-gradient(circle, rgba(192, 132, 252, 0.05) 0%, transparent 60%)', filter:'blur(80px)', zIndex:-1, pointerEvents:'none' }} />
 
