@@ -4,6 +4,7 @@ const ProjectMember = require('../models/ProjectMember');
 const ProjectInvitation = require('../models/ProjectInvitation');
 const Task = require('../models/Task');
 const User = require('../models/User');
+const { verifyProjectSubscription, getProjectsSubscriptionMap } = require('./subscription.controller');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,21 @@ const getMembership = (projectId, userId) =>
  */
 exports.createProject = async (req, res) => {
   try {
+    const Subscription = require('../models/Subscription');
+    const userSub = await Subscription.findOne({ user: req.user._id });
+    const isSubActive = userSub && (
+      userSub.status === 'active' ||
+      userSub.isLifetime ||
+      (userSub.status === 'trialing' && userSub.currentPeriodEnd && new Date(userSub.currentPeriodEnd) > new Date())
+    );
+
+    if (userSub && !isSubActive && !req.user.isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your trial or subscription has expired. Please upgrade your plan to create new projects.',
+      });
+    }
+
     const { name, description, color, dueDate } = req.body;
 
     const project = await Project.create({
@@ -60,7 +76,7 @@ exports.getProjects = async (req, res) => {
     const memberships = await ProjectMember.find({ user: req.user._id }).select('project role').lean();
     const projectIds = memberships.map((m) => m.project);
 
-    const [projects, taskStatsAggregation] = await Promise.all([
+    const [projects, taskStatsAggregation, subscriptionMap] = await Promise.all([
       Project.find({ _id: { $in: projectIds } })
         .populate('createdBy', 'name email avatar')
         .sort({ createdAt: -1 })
@@ -74,6 +90,7 @@ exports.getProjects = async (req, res) => {
           },
         },
       ]),
+      getProjectsSubscriptionMap(projectIds),
     ]);
 
     // Build task stats map per project: { [projectId]: { total, done } }
@@ -87,17 +104,21 @@ exports.getProjects = async (req, res) => {
       }
     });
 
-    // Attach role and stats to each project
+    // Attach role, stats, and active subscription status to each project
     const roleMap = {};
     memberships.forEach((m) => {
       roleMap[m.project.toString()] = m.role;
     });
 
-    const result = projects.map((p) => ({
-      ...p,
-      myRole: roleMap[p._id.toString()] || 'member',
-      taskStats: statsMap[p._id.toString()] || { total: 0, done: 0 },
-    }));
+    const result = projects.map((p) => {
+      const pid = p._id.toString();
+      return {
+        ...p,
+        myRole: roleMap[pid] || 'member',
+        taskStats: statsMap[pid] || { total: 0, done: 0 },
+        hasActiveSubscription: Boolean(subscriptionMap[pid]),
+      };
+    });
 
     res.json({ success: true, projects: result });
   } catch (err) {
@@ -118,7 +139,7 @@ exports.getProject = async (req, res) => {
 
     const projectObjectId = new mongoose.Types.ObjectId(req.params.id);
 
-    const [project, members, taskStats, taskTags] = await Promise.all([
+    const [project, members, taskStats, taskTags, subCoverage] = await Promise.all([
       Project.findById(req.params.id).populate('createdBy', 'name email avatar').lean(),
       ProjectMember.find({ project: req.params.id })
         .populate('user', 'name email avatar isClockedIn lastClockIn lastClockOut')
@@ -128,6 +149,7 @@ exports.getProject = async (req, res) => {
         { $group: { _id: '$status', count: { $sum: 1 } } },
       ]),
       Task.distinct('tags', { project: projectObjectId }),
+      verifyProjectSubscription(req.params.id),
     ]);
 
     if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
@@ -156,7 +178,14 @@ exports.getProject = async (req, res) => {
 
     res.json({
       success: true,
-      project: { ...project, tags: mergedTags, myRole: membership.role },
+      project: {
+        ...project,
+        tags: mergedTags,
+        myRole: membership.role,
+        hasActiveSubscription: Boolean(subCoverage.hasActiveSubscription),
+        subscriberName: subCoverage.subscriberName,
+        plan: subCoverage.plan,
+      },
       members,
       taskStats,
     });
@@ -174,6 +203,15 @@ exports.updateProject = async (req, res) => {
     const membership = await getMembership(req.params.id, req.user._id);
     if (!membership || membership.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+
+    const subCoverage = await verifyProjectSubscription(req.params.id);
+    if (!subCoverage.hasActiveSubscription) {
+      return res.status(403).json({
+        success: false,
+        message: 'This project is locked because an active subscription is required to add members.',
+        isProjectLocked: true,
+      });
     }
 
     const allowed = ['name', 'description', 'color', 'dueDate', 'status'];
@@ -208,6 +246,15 @@ exports.deleteProject = async (req, res) => {
     const membership = await getMembership(req.params.id, req.user._id);
     if (!membership || membership.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+
+    const subCoverage = await verifyProjectSubscription(req.params.id);
+    if (!subCoverage.hasActiveSubscription) {
+      return res.status(403).json({
+        success: false,
+        message: 'This project is locked because an active subscription is required to add members.',
+        isProjectLocked: true,
+      });
     }
 
     const project = await Project.findById(req.params.id);
@@ -247,6 +294,15 @@ exports.addMember = async (req, res) => {
     const membership = await getMembership(req.params.id, req.user._id);
     if (!membership || membership.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+
+    const subCoverage = await verifyProjectSubscription(req.params.id);
+    if (!subCoverage.hasActiveSubscription) {
+      return res.status(403).json({
+        success: false,
+        message: 'This project is locked because an active subscription is required to add members.',
+        isProjectLocked: true,
+      });
     }
 
     const { email, role = 'member' } = req.body;
@@ -356,6 +412,15 @@ exports.updateMemberRole = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Admin access required' });
     }
 
+    const subCoverage = await verifyProjectSubscription(req.params.id);
+    if (!subCoverage.hasActiveSubscription) {
+      return res.status(403).json({
+        success: false,
+        message: 'This project is locked because an active subscription is required to add members.',
+        isProjectLocked: true,
+      });
+    }
+
     const project = await Project.findById(req.params.id);
     if (!project) {
       return res.status(404).json({ success: false, message: 'Project not found' });
@@ -426,6 +491,15 @@ exports.removeMember = async (req, res) => {
     const membership = await getMembership(req.params.id, req.user._id);
     if (!membership || membership.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+
+    const subCoverage = await verifyProjectSubscription(req.params.id);
+    if (!subCoverage.hasActiveSubscription) {
+      return res.status(403).json({
+        success: false,
+        message: 'This project is locked because an active subscription is required to add members.',
+        isProjectLocked: true,
+      });
     }
 
     const project = await Project.findById(req.params.id);

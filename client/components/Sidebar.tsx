@@ -24,13 +24,14 @@ const nav: NavItem[] = [
 ];
 
 export default function Sidebar() {
-  const { user, logout, setUser, subscription, isCoveredByAdmin } = useAuth();
+  const { user, logout, setUser, subscription, isCoveredByAdmin, ownedProjectsCount } = useAuth();
   const pathname = usePathname();
   const [notifsOpen, setNotifsOpen] = useState(false);
   const [now, setNow] = useState<number>(() => Date.now());
 
   const isTrialing = Boolean(
     subscription?.status === 'trialing' &&
+    ownedProjectsCount > 0 &&
     !isCoveredByAdmin &&
     !user?.isSuperAdmin
   );

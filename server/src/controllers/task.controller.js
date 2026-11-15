@@ -2,6 +2,7 @@ const Task = require('../models/Task');
 const Project = require('../models/Project');
 const ProjectMember = require('../models/ProjectMember');
 const User = require('../models/User');
+const { verifyProjectSubscription, getProjectsSubscriptionMap } = require('./subscription.controller');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -63,18 +64,24 @@ exports.getMyTasks = async (req, res) => {
     if (req.query.status) filter.status = req.query.status;
     if (req.query.priority) filter.priority = req.query.priority;
 
-    const tasks = await Task.find(filter)
-      .populate('project', 'name color')
-      .populate('createdBy', 'name email avatar')
-      .populate('assignedTo', 'name email avatar')
-      .populate('comments.user', 'name email avatar')
-      .sort({ dueDate: 1, createdAt: -1 })
-      .lean();
+    const [tasks, subMap] = await Promise.all([
+      Task.find(filter)
+        .populate('project', 'name color')
+        .populate('createdBy', 'name email avatar')
+        .populate('assignedTo', 'name email avatar')
+        .populate('comments.user', 'name email avatar')
+        .sort({ dueDate: 1, createdAt: -1 })
+        .lean(),
+      getProjectsSubscriptionMap(projectIds),
+    ]);
 
     const formattedTasks = tasks.map((t) => {
       const pid = typeof t.project === 'object' && t.project ? t.project._id.toString() : t.project?.toString();
+      const isLocked = !subMap[pid];
       return {
         ...t,
+        description: isLocked ? '• • • • • (Subscription required to unlock details)' : t.description,
+        isProjectLocked: isLocked,
         projectName: typeof t.project === 'object' && t.project ? t.project.name : 'Unknown',
         projectId: pid,
         myRole: roleMap[pid] || 'member',
@@ -100,8 +107,18 @@ exports.createTask = async (req, res) => {
     if (!membership) {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
+
     if (membership.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Only admins can create tasks' });
+    }
+
+    const subCoverage = await verifyProjectSubscription(projectId);
+    if (!subCoverage.hasActiveSubscription) {
+      return res.status(403).json({
+        success: false,
+        message: 'This project is locked because an active subscription is required to create tasks.',
+        isProjectLocked: true,
+      });
     }
 
     const { title, description, assignedTo, priority, dueDate, tags, checklist } = req.body;
@@ -200,7 +217,7 @@ exports.getTasks = async (req, res) => {
     if (priority) filter.priority = priority;
 
     const skip = (Number(page) - 1) * Number(limit);
-    const [tasks, total] = await Promise.all([
+    const [tasks, total, subCoverage] = await Promise.all([
       Task.find(filter)
         .populate('assignedTo', 'name email avatar')
         .populate('createdBy', 'name email avatar')
@@ -210,11 +227,33 @@ exports.getTasks = async (req, res) => {
         .limit(Number(limit))
         .lean(),
       Task.countDocuments(filter),
+      verifyProjectSubscription(projectId),
     ]);
+
+    if (!subCoverage.hasActiveSubscription) {
+      const maskedTasks = tasks.map((t) => ({
+        ...t,
+        description: '• • • • • (Subscription required to unlock details)',
+        checklist: [],
+        isMasked: true,
+      }));
+      return res.json({
+        success: true,
+        tasks: maskedTasks,
+        isProjectLocked: true,
+        pagination: {
+          total,
+          page: Number(page),
+          limit: Number(limit),
+          pages: Math.ceil(total / Number(limit)),
+        },
+      });
+    }
 
     res.json({
       success: true,
       tasks,
+      isProjectLocked: false,
       pagination: {
         total,
         page: Number(page),
@@ -239,6 +278,7 @@ exports.getTask = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
+    const subCoverage = await verifyProjectSubscription(projectId);
     const task = await Task.findOne({ _id: taskId, project: projectId })
       .populate('assignedTo', 'name email avatar')
       .populate('createdBy', 'name email avatar')
@@ -247,7 +287,20 @@ exports.getTask = async (req, res) => {
 
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
 
-    res.json({ success: true, task });
+    if (!subCoverage.hasActiveSubscription) {
+      return res.json({
+        success: true,
+        task: {
+          ...task,
+          description: '• • • • • (Subscription required to unlock details)',
+          checklist: [],
+          isMasked: true,
+        },
+        isProjectLocked: true,
+      });
+    }
+
+    res.json({ success: true, task, isProjectLocked: false });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to fetch task' });
   }
@@ -265,6 +318,15 @@ exports.updateTask = async (req, res) => {
     const membership = await getMembership(projectId, req.user._id);
     if (!membership) {
       return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const subCoverage = await verifyProjectSubscription(projectId);
+    if (!subCoverage.hasActiveSubscription) {
+      return res.status(403).json({
+        success: false,
+        message: 'This project is locked because an active subscription is required to update tasks.',
+        isProjectLocked: true,
+      });
     }
 
     const task = await Task.findOne({ _id: taskId, project: projectId });
@@ -466,6 +528,15 @@ exports.addComment = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
+    const subCoverage = await verifyProjectSubscription(projectId);
+    if (!subCoverage.hasActiveSubscription) {
+      return res.status(403).json({
+        success: false,
+        message: 'This project is locked because an active subscription is required to update tasks.',
+        isProjectLocked: true,
+      });
+    }
+
     const task = await Task.findOne({ _id: taskId, project: projectId });
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
 
@@ -514,6 +585,15 @@ exports.updateComment = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
+    const subCoverage = await verifyProjectSubscription(projectId);
+    if (!subCoverage.hasActiveSubscription) {
+      return res.status(403).json({
+        success: false,
+        message: 'This project is locked because an active subscription is required to update tasks.',
+        isProjectLocked: true,
+      });
+    }
+
     const task = await Task.findOne({ _id: taskId, project: projectId });
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
 
@@ -553,6 +633,15 @@ exports.deleteComment = async (req, res) => {
     const membership = await getMembership(projectId, req.user._id);
     if (!membership) {
       return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const subCoverage = await verifyProjectSubscription(projectId);
+    if (!subCoverage.hasActiveSubscription) {
+      return res.status(403).json({
+        success: false,
+        message: 'This project is locked because an active subscription is required to update tasks.',
+        isProjectLocked: true,
+      });
     }
 
     const task = await Task.findOne({ _id: taskId, project: projectId });

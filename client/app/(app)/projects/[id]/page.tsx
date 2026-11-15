@@ -12,10 +12,10 @@ import { BoardSkeleton } from '@/components/Skeletons';
 import { formatTimeAgo } from '@/lib/format';
 import { triggerConfetti } from '@/lib/confetti';
 import {
-  Plus, ArrowLeft, Trash2, UserPlus, Pencil,
+  Plus, ArrowLeft, ArrowRight, Trash2, UserPlus, Pencil,
   MessageSquare, CornerDownLeft, GripVertical,
   Search, X, User, Users, CheckSquare, Download, ExternalLink, Clock,
-  Video, Calendar, Copy, Check, ChevronDown, ChevronUp
+  Video, Calendar, Copy, Check, ChevronDown, ChevronUp, Lock
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -2625,17 +2625,44 @@ export default function ProjectDetailPage() {
                 <span className={`badge badge-${myRole}`} style={{ fontSize: 13 }}>
                   {project && (typeof project.createdBy === 'object' ? project.createdBy?._id : project.createdBy) === user?._id ? 'Owner' : myRole}
                 </span>
+                {project?.hasActiveSubscription === false && (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      padding: '4px 10px',
+                      borderRadius: 8,
+                      background: 'rgba(239, 68, 68, 0.15)',
+                      color: '#f87171',
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                    }}
+                  >
+                    <Lock size={12} /> Subscription Inactive
+                  </span>
+                )}
               </div>
               <div style={{ display: 'flex', gap: 12 }}>
-                <button
-                  className="btn-ghost"
-                  onClick={exportTasksCSV}
-                  style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}
-                  title="Export all project tasks to CSV"
-                >
-                  <Download size={15} /> Export CSV
-                </button>
-                {myRole === 'admin' && (
+                {project?.hasActiveSubscription === false && myRole === 'admin' && (
+                  <Link href="/billing" style={{ textDecoration: 'none' }}>
+                    <button className="btn-primary" style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}>
+                      <Lock size={14} /> Upgrade to Unlock
+                    </button>
+                  </Link>
+                )}
+                {project?.hasActiveSubscription !== false && (
+                  <button
+                    className="btn-ghost"
+                    onClick={exportTasksCSV}
+                    style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}
+                    title="Export all project tasks to CSV"
+                  >
+                    <Download size={15} /> Export CSV
+                  </button>
+                )}
+                {myRole === 'admin' && project?.hasActiveSubscription !== false && (
                   <>
                     <button className="btn-ghost" onClick={() => setShowMemberModal(true)} style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 8 }}>
                       <UserPlus size={16} /> Add Member
@@ -2839,9 +2866,62 @@ export default function ProjectDetailPage() {
             </div>
           )}
 
+          {/* ══ Masked / Locked Banner for Inactive Subscriptions ══ */}
+          {project?.hasActiveSubscription === false && (
+            <div style={{
+              marginBottom: 24,
+              padding: '28px 24px',
+              borderRadius: 16,
+              background: 'rgba(239, 68, 68, 0.05)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 20,
+              flexWrap: 'wrap',
+              boxShadow: '0 8px 30px -10px rgba(239, 68, 68, 0.2)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <div style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  <Lock size={20} color="#f87171" />
+                </div>
+                <div>
+                  <h4 style={{ fontFamily: 'Fraunces, serif', fontSize: 18, color: 'var(--text-primary)', margin: 0 }}>
+                    Project Data Masked & Locked
+                  </h4>
+                  <p style={{ fontFamily: 'Outfit, sans-serif', fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 0', maxWidth: 640 }}>
+                    {myRole === 'admin'
+                      ? 'This project requires an active subscription from a project admin or owner. Task descriptions and editing capabilities are masked until upgraded.'
+                      : 'This project is currently locked because neither the project owner nor any administrator has an active subscription. Please ask the project administrator to renew.'}
+                  </p>
+                </div>
+              </div>
+              {myRole === 'admin' && (
+                <Link href="/billing" style={{ textDecoration: 'none' }}>
+                  <button className="btn-primary" style={{ padding: '10px 22px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg, #ef4444, #dc2626)', whiteSpace: 'nowrap' }}>
+                    Upgrade Subscription <ArrowRight size={14} />
+                  </button>
+                </Link>
+              )}
+            </div>
+          )}
+
           {/* ══ Board view ══ */}
           {tab === 'board' && (
-            <div className="kanban-board-container">
+            <div
+              className="kanban-board-container"
+              style={project?.hasActiveSubscription === false ? { filter: 'blur(5px)', opacity: 0.35, pointerEvents: 'none', userSelect: 'none' } : undefined}
+            >
               {STATUS_COLS.map((col) => (
                 <KanbanColumn
                   key={col.key}
@@ -2863,7 +2943,13 @@ export default function ProjectDetailPage() {
 
           {/* ══ List view ══ */}
           {tab === 'list' && (
-            <div className="glass-panel" style={{ overflow: 'hidden' }}>
+            <div
+              className="glass-panel"
+              style={{
+                overflow: 'hidden',
+                ...(project?.hasActiveSubscription === false ? { filter: 'blur(5px)', opacity: 0.35, pointerEvents: 'none', userSelect: 'none' } : {}),
+              }}
+            >
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
@@ -3147,7 +3233,7 @@ export default function ProjectDetailPage() {
 
           {/* ══ Meetings view ══ */}
           {tab === 'meetings' && (
-            <div style={{ maxWidth: 1000 }}>
+            <div style={{ maxWidth: 1000, ...(project?.hasActiveSubscription === false ? { filter: 'blur(5px)', opacity: 0.35, pointerEvents: 'none', userSelect: 'none' } : {}) }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
                 <div>
                   <h3 style={{ fontFamily: 'Fraunces, serif', fontSize: 20, color: 'var(--text-primary)', margin: 0 }}>Project Video Syncs</h3>
@@ -3155,13 +3241,15 @@ export default function ProjectDetailPage() {
                     Schedule video calls, share instant rooms, and review agendas for this project.
                   </p>
                 </div>
-                <button
-                  onClick={openScheduleProjectMeeting}
-                  className="btn-primary"
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', fontSize: 13 }}
-                >
-                  <Plus size={16} /> Schedule Sync
-                </button>
+                {project?.hasActiveSubscription !== false && (
+                  <button
+                    onClick={openScheduleProjectMeeting}
+                    className="btn-primary"
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', fontSize: 13 }}
+                  >
+                    <Plus size={16} /> Schedule Sync
+                  </button>
+                )}
               </div>
 
               {loadingMeetings ? (

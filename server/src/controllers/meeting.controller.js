@@ -92,6 +92,18 @@ exports.createMeeting = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Start and end time are required' });
     }
 
+    if (project) {
+      const { verifyProjectSubscription } = require('./subscription.controller');
+      const subCoverage = await verifyProjectSubscription(project);
+      if (!subCoverage.hasActiveSubscription) {
+        return res.status(403).json({
+          success: false,
+          message: 'This project is locked because an active subscription is required to schedule meetings.',
+          isProjectLocked: true,
+        });
+      }
+    }
+
     let finalLink = (meetLink || '').trim();
     if (!finalLink) {
       const slug = title

@@ -43,6 +43,9 @@ export interface Project {
   myRole?: 'admin' | 'member';
   taskStats?: { todo: number; in_progress: number; done: number; total: number };
   tags?: string[];
+  hasActiveSubscription?: boolean;
+  subscriberName?: string;
+  plan?: string;
 }
 
 export interface ProjectMember {
@@ -92,6 +95,8 @@ export interface Task {
   projectName?: string;
   projectId?: string;
   myRole?: 'admin' | 'member';
+  isProjectLocked?: boolean;
+  isMasked?: boolean;
 }
 
 export interface DashboardData {

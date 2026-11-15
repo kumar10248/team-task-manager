@@ -77,6 +77,113 @@ const getRazorpayInstance = () => {
 };
 
 /**
+ * Helper: checks whether a single project has active subscription coverage
+ * (Owner OR any Admin has an active subscription or valid trial).
+ */
+const verifyProjectSubscription = async (projectId) => {
+  const Project = require('../models/Project');
+  const ProjectMember = require('../models/ProjectMember');
+
+  const project = await Project.findById(projectId).select('createdBy').lean();
+  if (!project) return { hasActiveSubscription: false };
+
+  const adminMembers = await ProjectMember.find({
+    project: projectId,
+    role: 'admin',
+  }).select('user').lean();
+
+  const leaderUserIds = [
+    project.createdBy,
+    ...adminMembers.map((m) => m.user),
+  ].filter(Boolean);
+
+  const activeSub = await Subscription.findOne({
+    user: { $in: leaderUserIds },
+    $or: [
+      { status: 'active' },
+      { isLifetime: true },
+      { status: 'trialing', currentPeriodEnd: { $gt: new Date() } },
+    ],
+  }).populate('user', 'name email').lean();
+
+  if (activeSub) {
+    return {
+      hasActiveSubscription: true,
+      subscriberName: activeSub.user?.name,
+      plan: activeSub.plan,
+    };
+  }
+
+  return {
+    hasActiveSubscription: false,
+  };
+};
+
+/**
+ * Helper: checks subscription coverage for a list of projects in bulk.
+ * Returns: { [projectId]: boolean }
+ */
+const getProjectsSubscriptionMap = async (projectIds) => {
+  if (!projectIds || projectIds.length === 0) return {};
+  const Project = require('../models/Project');
+  const ProjectMember = require('../models/ProjectMember');
+
+  const [projects, adminMembers] = await Promise.all([
+    Project.find({ _id: { $in: projectIds } }).select('_id createdBy').lean(),
+    ProjectMember.find({ project: { $in: projectIds }, role: 'admin' }).select('project user').lean(),
+  ]);
+
+  const projectLeadersMap = {};
+  const allLeaderIds = new Set();
+
+  projects.forEach((p) => {
+    const pid = p._id.toString();
+    projectLeadersMap[pid] = new Set();
+    if (p.createdBy) {
+      const ownerId = p.createdBy.toString();
+      projectLeadersMap[pid].add(ownerId);
+      allLeaderIds.add(ownerId);
+    }
+  });
+
+  adminMembers.forEach((m) => {
+    const pid = m.project.toString();
+    if (projectLeadersMap[pid] && m.user) {
+      const adminId = m.user.toString();
+      projectLeadersMap[pid].add(adminId);
+      allLeaderIds.add(adminId);
+    }
+  });
+
+  const activeSubs = await Subscription.find({
+    user: { $in: Array.from(allLeaderIds) },
+    $or: [
+      { status: 'active' },
+      { isLifetime: true },
+      { status: 'trialing', currentPeriodEnd: { $gt: new Date() } },
+    ],
+  }).select('user plan').lean();
+
+  const activeUserSet = new Set(activeSubs.map((s) => s.user.toString()));
+
+  const resultMap = {};
+  for (const pid of projectIds) {
+    const pidStr = pid.toString();
+    const leaders = projectLeadersMap[pidStr] || new Set();
+    let hasActive = false;
+    for (const leaderId of leaders) {
+      if (activeUserSet.has(leaderId)) {
+        hasActive = true;
+        break;
+      }
+    }
+    resultMap[pidStr] = hasActive;
+  }
+
+  return resultMap;
+};
+
+/**
  * Helper: checks user's own subscription and whether they are an invited member
  * covered by another active admin's subscription.
  */
@@ -105,23 +212,30 @@ const checkUserSubscriptionCoverage = async (userId) => {
 
   const ownedProjectsCount = await Project.countDocuments({ createdBy: userId });
 
-  const memberships = await ProjectMember.find({ user: userId }).populate({
-    path: 'project',
-    select: 'createdBy name',
-  });
+  // Only check other project leaders (exclude the user themselves)
+  const memberships = await ProjectMember.find({ user: userId })
+    .populate({
+      path: 'project',
+      select: 'createdBy name',
+    })
+    .lean();
 
-  const otherAdminIds = memberships
-    .map((m) => m.project?.createdBy)
-    .filter((ownerId) => ownerId && ownerId.toString() !== userId.toString());
+  const otherLeaderIds = memberships
+    .map((m) => m.project?.createdBy?.toString())
+    .filter((ownerId) => ownerId && ownerId !== userId.toString());
 
   let isCoveredByAdmin = false;
   let coveringAdminName = null;
 
-  if (otherAdminIds.length > 0) {
+  if (otherLeaderIds.length > 0) {
     const adminSubs = await Subscription.find({
-      user: { $in: otherAdminIds },
-      status: { $in: ['active', 'trialing'] },
-    }).populate('user', 'name email');
+      user: { $in: otherLeaderIds },
+      $or: [
+        { status: 'active' },
+        { isLifetime: true },
+        { status: 'trialing', currentPeriodEnd: { $gt: new Date() } },
+      ],
+    }).populate('user', 'name email').lean();
 
     const validAdminSub = adminSubs.find(
       (s) => !s.currentPeriodEnd || new Date(s.currentPeriodEnd) > new Date()
@@ -141,6 +255,8 @@ const checkUserSubscriptionCoverage = async (userId) => {
   };
 };
 
+exports.verifyProjectSubscription = verifyProjectSubscription;
+exports.getProjectsSubscriptionMap = getProjectsSubscriptionMap;
 exports.checkUserSubscriptionCoverage = checkUserSubscriptionCoverage;
 
 /**

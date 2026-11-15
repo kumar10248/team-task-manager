@@ -32,6 +32,8 @@ interface Task {
   projectId: string;
   myRole: string;
   checklist?: ChecklistItem[];
+  isProjectLocked?: boolean;
+  isMasked?: boolean;
 }
 
 interface TaskFilter {
@@ -287,7 +289,14 @@ export default function MyTasksPage(): ReactElement {
                           onMouseLeave={(e: React.MouseEvent<HTMLTableRowElement>) => e.currentTarget.style.background = 'transparent'}
                         >
                           <td style={{ padding: '16px 20px', maxWidth: 300 }}>
-                            <div style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 500, fontFamily: 'Outfit, sans-serif' }}>{t.title}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 500, fontFamily: 'Outfit, sans-serif' }}>{t.title}</div>
+                              {t.isProjectLocked && (
+                                <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', fontWeight: 600 }}>
+                                  Locked
+                                </span>
+                              )}
+                            </div>
                             {t.description && (
                               <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4, fontFamily: 'Outfit, sans-serif', lineHeight: 1.5 }}>
                                 {t.description.slice(0, 60)}{t.description.length > 60 ? '…' : ''}
@@ -362,17 +371,21 @@ export default function MyTasksPage(): ReactElement {
                             {t.dueDate ? new Date(t.dueDate).toLocaleDateString() : '—'}
                           </td>
                           <td style={{ padding: '16px 20px' }}>
-                            <select
-                              value={t.status}
-                              onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                                updateStatus(t, e.target.value as TaskStatus)
-                              }
-                              style={{ fontSize: 12, padding: '6px 12px', width: 'auto', fontFamily: 'Outfit, sans-serif', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8, color: 'var(--text-primary)' }}
-                            >
-                              <option value="todo" style={{ background: '#0a0a0f', color: '#fff' }}>To Do</option>
-                              <option value="in_progress" style={{ background: '#0a0a0f', color: '#fff' }}>In Progress</option>
-                              <option value="done" style={{ background: '#0a0a0f', color: '#fff' }}>Done</option>
-                            </select>
+                            {t.isProjectLocked ? (
+                              <span style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>Locked</span>
+                            ) : (
+                              <select
+                                value={t.status}
+                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                                  updateStatus(t, e.target.value as TaskStatus)
+                                }
+                                style={{ fontSize: 12, padding: '6px 12px', width: 'auto', fontFamily: 'Outfit, sans-serif', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8, color: 'var(--text-primary)' }}
+                              >
+                                <option value="todo" style={{ background: '#0a0a0f', color: '#fff' }}>To Do</option>
+                                <option value="in_progress" style={{ background: '#0a0a0f', color: '#fff' }}>In Progress</option>
+                                <option value="done" style={{ background: '#0a0a0f', color: '#fff' }}>Done</option>
+                              </select>
+                            )}
                           </td>
                         </tr>
 

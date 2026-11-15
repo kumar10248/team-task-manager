@@ -5,15 +5,15 @@ import { usePathname } from 'next/navigation';
 import { Sparkles, AlertTriangle, ArrowRight, Clock, CreditCard } from 'lucide-react';
 
 export default function TrialBanner() {
-  const { user, subscription, isCoveredByAdmin } = useAuth();
+  const { user, subscription, isCoveredByAdmin, ownedProjectsCount } = useAuth();
   const pathname = usePathname();
 
   // Do not show banner if:
   // 1. User not logged in
-  // 2. User is covered by an active admin (team member access)
-  // 3. User is Super Admin (root VIP access)
-  // 4. Subscription is active (paid) or not in trialing status
-  if (!user || isCoveredByAdmin || user.isSuperAdmin || !subscription) {
+  // 2. User is Super Admin (root VIP access)
+  // 3. User does not own any projects or is covered by a workspace admin (invited team member)
+  // 4. Subscription is not in trialing status
+  if (!user || user.isSuperAdmin || !subscription || isCoveredByAdmin || ownedProjectsCount === 0) {
     return null;
   }
 

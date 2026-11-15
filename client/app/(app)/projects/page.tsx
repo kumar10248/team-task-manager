@@ -9,7 +9,7 @@ import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import Modal from '@/components/Model';
 import { ProjectsSkeleton } from '@/components/Skeletons';
-import { Plus, FolderKanban, Trash2, ArrowRight, Archive, ArchiveRestore, CheckCircle2, UserPlus, Check, X } from 'lucide-react';
+import { Plus, FolderKanban, Trash2, ArrowRight, Archive, ArchiveRestore, CheckCircle2, UserPlus, Check, X, Lock } from 'lucide-react';
 
 interface TaskStats { total: number; done: number }
 interface Project {
@@ -21,6 +21,7 @@ interface Project {
   createdBy?: { _id: string; name?: string; email?: string } | string;
   myRole: 'admin' | 'member';
   taskStats?: TaskStats;
+  hasActiveSubscription?: boolean;
 }
 interface ProjectForm { name: string; description: string; color: string }
 interface FormField { key: keyof Pick<ProjectForm, 'name' | 'description'>; label: string; ph: string }
@@ -99,6 +100,26 @@ function ProjectCard({ project, currentUserId, onDelete, onArchive, onRestore, o
             <span className={`badge badge-${project.myRole}`}>
               {isOwner ? 'owner' : project.myRole}
             </span>
+            {project.hasActiveSubscription === false && (
+              <span
+                style={{
+                  fontSize: 10,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  padding: '2px 8px',
+                  borderRadius: 4,
+                  fontWeight: 600,
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  color: '#f87171',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <Lock size={10} /> Locked
+              </span>
+            )}
           </div>
         </div>
         
