@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { AuthProvider } from '../lib/auth-context';
 import { ToastProvider } from '../components/Toast';
+import { TimerProvider } from '../lib/timer-context';
 
 export const metadata: Metadata = {
   title: 'TaskForge — Team Task Manager',
@@ -14,7 +15,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <AuthProvider>
           <ToastProvider>
-            {children}
+            <TimerProvider>
+              {children}
+            </TimerProvider>
           </ToastProvider>
         </AuthProvider>
       </body>

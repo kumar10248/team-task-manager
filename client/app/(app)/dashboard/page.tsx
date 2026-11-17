@@ -10,7 +10,7 @@ import Link from 'next/link';
 
 /* ================= TYPES ================= */
 
-type TaskStatus   = 'todo' | 'in_progress' | 'done';
+type TaskStatus   = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'canceled';
 type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 type Role         = 'admin' | 'member' | string;
 
@@ -49,9 +49,12 @@ interface TasksPerUser {
 }
 
 interface TasksByStatus {
+  backlog?: number;
   todo?: number;
   in_progress?: number;
+  in_review?: number;
   done?: number;
+  canceled?: number;
 }
 
 interface DashboardData {
@@ -84,9 +87,12 @@ interface StatCardProps {
 /* ================= CONSTANTS ================= */
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
+  backlog:     'Backlog',
   todo:        'To Do',
   in_progress: 'In Progress',
+  in_review:   'In Review',
   done:        'Done',
+  canceled:    'Canceled',
 };
 
 /* ================= STAT CARD ================= */

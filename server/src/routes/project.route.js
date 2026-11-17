@@ -51,6 +51,10 @@ router.route('/:projectId/tasks/:taskId')
   .patch(task.updateTask)
   .delete(task.deleteTask);
 
+// Time logs
+router.route('/:projectId/tasks/:taskId/time-logs')
+  .post(task.logTime);
+
 // Comments
 router.route('/:projectId/tasks/:taskId/comments')
   .post(task.addComment);

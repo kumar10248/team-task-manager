@@ -42,6 +42,32 @@ const checklistItemSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+const timeLogSchema = new mongoose.Schema(
+  {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    minutes: {
+      type: Number,
+      required: [true, 'Logged minutes is required'],
+      min: [1, 'Minimum log time is 1 minute'],
+    },
+    description: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: '',
+    },
+    loggedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { timestamps: true }
+);
+
 const taskSchema = new mongoose.Schema(
   {
     title: {
@@ -83,7 +109,7 @@ const taskSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['todo', 'in_progress', 'done'],
+      enum: ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'canceled'],
       default: 'todo',
     },
     priority: {
@@ -99,6 +125,16 @@ const taskSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    estimatedHours: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    loggedMinutes: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     tags: [
       {
         type: String,
@@ -107,6 +143,7 @@ const taskSchema = new mongoose.Schema(
       },
     ],
     checklist: [checklistItemSchema],
+    timeLogs: [timeLogSchema],
     comments: [commentSchema],
   },
   {

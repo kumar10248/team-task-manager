@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth-context';
 import Sidebar from '@/components/Sidebar';
 import TrialExpiredPaywall from '@/components/TrialExpiredPaywall';
 import TrialBanner from '@/components/TrialBanner';
+import ActiveTimerWidget from '@/components/ActiveTimerWidget';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -28,6 +29,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, width: '100%' }}>
           {children}
         </div>
+        <ActiveTimerWidget />
       </div>
     );
   }
@@ -65,6 +67,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, width: '100%' }}>
         {children}
       </div>
+      <ActiveTimerWidget />
     </div>
   );
 }

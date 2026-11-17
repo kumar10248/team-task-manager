@@ -10,7 +10,7 @@ import { CheckSquare, Filter, ChevronDown, ChevronUp, Plus, X } from 'lucide-rea
 
 /* ================= TYPES ================= */
 
-type TaskStatus   = 'todo' | 'in_progress' | 'done';
+type TaskStatus   = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'canceled';
 type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 
 interface TaskUser {
@@ -44,9 +44,12 @@ interface TaskFilter {
 /* ================= CONSTANTS ================= */
 
 const STATUS_MAP: Record<TaskStatus, string> = {
+  backlog:     'Backlog',
   todo:        'To Do',
   in_progress: 'In Progress',
+  in_review:   'In Review',
   done:        'Done',
+  canceled:    'Canceled',
 };
 
 const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent'];
@@ -223,9 +226,12 @@ export default function MyTasksPage(): ReactElement {
                 style={{ width: 'auto', padding: '6px 12px', fontSize: 13, fontFamily: 'Outfit, sans-serif', background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', outline: 'none' }}
               >
                 <option value="" style={{ background: '#0a0a0f', color: '#fff' }}>All Statuses</option>
+                <option value="backlog" style={{ background: '#0a0a0f', color: '#fff' }}>Backlog</option>
                 <option value="todo" style={{ background: '#0a0a0f', color: '#fff' }}>To Do</option>
                 <option value="in_progress" style={{ background: '#0a0a0f', color: '#fff' }}>In Progress</option>
+                <option value="in_review" style={{ background: '#0a0a0f', color: '#fff' }}>In Review</option>
                 <option value="done" style={{ background: '#0a0a0f', color: '#fff' }}>Done</option>
+                <option value="canceled" style={{ background: '#0a0a0f', color: '#fff' }}>Canceled</option>
               </select>
               <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)' }} />
               <select
@@ -274,7 +280,7 @@ export default function MyTasksPage(): ReactElement {
                 </thead>
                 <tbody>
                   {filtered.map((t) => {
-                    const isOverdue = !!t.dueDate && t.status !== 'done' && new Date() > new Date(t.dueDate);
+                    const isOverdue = !!t.dueDate && t.status !== 'done' && t.status !== 'canceled' && new Date() > new Date(t.dueDate);
                     const isExpanded = !!expandedTasks[t._id];
                     const hasChecklist = t.checklist && t.checklist.length > 0;
                     const totalChecklist = t.checklist ? t.checklist.length : 0;
@@ -381,9 +387,12 @@ export default function MyTasksPage(): ReactElement {
                                 }
                                 style={{ fontSize: 12, padding: '6px 12px', width: 'auto', fontFamily: 'Outfit, sans-serif', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8, color: 'var(--text-primary)' }}
                               >
+                                <option value="backlog" style={{ background: '#0a0a0f', color: '#fff' }}>Backlog</option>
                                 <option value="todo" style={{ background: '#0a0a0f', color: '#fff' }}>To Do</option>
                                 <option value="in_progress" style={{ background: '#0a0a0f', color: '#fff' }}>In Progress</option>
+                                <option value="in_review" style={{ background: '#0a0a0f', color: '#fff' }}>In Review</option>
                                 <option value="done" style={{ background: '#0a0a0f', color: '#fff' }}>Done</option>
+                                <option value="canceled" style={{ background: '#0a0a0f', color: '#fff' }}>Canceled</option>
                               </select>
                             )}
                           </td>

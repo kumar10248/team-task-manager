@@ -121,7 +121,7 @@ exports.createTask = async (req, res) => {
       });
     }
 
-    const { title, description, assignedTo, priority, dueDate, tags, checklist } = req.body;
+    const { title, description, assignedTo, status, priority, dueDate, tags, checklist, estimatedHours } = req.body;
 
     // Validate required fields
     if (!title || !title.trim()) {
@@ -152,10 +152,12 @@ exports.createTask = async (req, res) => {
       project: projectId,
       createdBy: req.user._id,
       assignedTo: assignees,
-      priority,
+      status: status || 'todo',
+      priority: priority || 'medium',
       dueDate,
       tags: Array.isArray(tags) ? tags : [],
       checklist: Array.isArray(checklist) ? checklist : [],
+      estimatedHours: Number(estimatedHours) > 0 ? Number(estimatedHours) : 0,
     });
 
     const populated = await Task.findById(task._id)
@@ -222,6 +224,7 @@ exports.getTasks = async (req, res) => {
         .populate('assignedTo', 'name email avatar')
         .populate('createdBy', 'name email avatar')
         .populate('comments.user', 'name email avatar')
+        .populate('timeLogs.user', 'name email avatar')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit))
@@ -283,6 +286,7 @@ exports.getTask = async (req, res) => {
       .populate('assignedTo', 'name email avatar')
       .populate('createdBy', 'name email avatar')
       .populate('comments.user', 'name email avatar')
+      .populate('timeLogs.user', 'name email avatar')
       .lean();
 
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
@@ -348,7 +352,7 @@ exports.updateTask = async (req, res) => {
       }
     }
 
-    const adminFields = ['title', 'description', 'assignedTo', 'priority', 'dueDate', 'tags', 'checklist'];
+    const adminFields = ['title', 'description', 'assignedTo', 'priority', 'dueDate', 'tags', 'checklist', 'estimatedHours'];
     const memberFields = ['status', 'checklist'];
     const allowedFields = membership.role === 'admin' ? [...adminFields, 'status'] : memberFields;
 
@@ -381,7 +385,14 @@ exports.updateTask = async (req, res) => {
     }
 
     // ── Audit Trail / System Activity Events ───────────────────────────────────
-    const statusLabels = { todo: 'To Do', in_progress: 'In Progress', done: 'Done' };
+    const statusLabels = {
+      backlog: 'Backlog',
+      todo: 'To Do',
+      in_progress: 'In Progress',
+      in_review: 'In Review',
+      done: 'Done',
+      canceled: 'Canceled',
+    };
 
     if (updates.status && updates.status !== oldStatus) {
       const from = statusLabels[oldStatus] || oldStatus;
@@ -480,7 +491,8 @@ exports.updateTask = async (req, res) => {
     const populated = await Task.findById(task._id)
       .populate('assignedTo', 'name email avatar')
       .populate('createdBy', 'name email avatar')
-      .populate('comments.user', 'name email avatar');
+      .populate('comments.user', 'name email avatar')
+      .populate('timeLogs.user', 'name email avatar');
 
     res.json({ success: true, task: populated });
   } catch (err) {
@@ -661,5 +673,71 @@ exports.deleteComment = async (req, res) => {
     res.json({ success: true, message: 'Comment deleted' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to delete comment' });
+  }
+};
+
+/**
+ * POST /api/projects/:projectId/tasks/:taskId/time-logs
+ * Log time on a task.
+ * Body: { minutes, description }
+ */
+exports.logTime = async (req, res) => {
+  try {
+    const { projectId, taskId } = req.params;
+    const membership = await getMembership(projectId, req.user._id);
+    if (!membership) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const subCoverage = await verifyProjectSubscription(projectId);
+    if (!subCoverage.hasActiveSubscription) {
+      return res.status(403).json({
+        success: false,
+        message: 'This project is locked because an active subscription is required to log time.',
+        isProjectLocked: true,
+      });
+    }
+
+    const task = await Task.findOne({ _id: taskId, project: projectId });
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
+
+    const { minutes, description } = req.body;
+    const mins = Number(minutes);
+    if (!mins || isNaN(mins) || mins <= 0) {
+      return res.status(400).json({ success: false, message: 'Valid positive minutes required' });
+    }
+
+    task.timeLogs = task.timeLogs || [];
+    task.timeLogs.push({
+      user: req.user._id,
+      minutes: Math.round(mins),
+      description: description ? description.trim() : '',
+      loggedAt: new Date(),
+    });
+
+    task.loggedMinutes = (task.loggedMinutes || 0) + Math.round(mins);
+
+    const hours = Math.floor(mins / 60);
+    const remMins = Math.round(mins % 60);
+    const formattedDuration = `${hours > 0 ? `${hours}h ` : ''}${remMins > 0 || hours === 0 ? `${remMins}m` : ''}`.trim();
+
+    task.comments.push({
+      user: req.user._id,
+      text: `logged ${formattedDuration} of work${description ? `: "${description.trim()}"` : ''}`,
+      type: 'activity',
+    });
+
+    await task.save();
+
+    const populated = await Task.findById(task._id)
+      .populate('assignedTo', 'name email avatar')
+      .populate('createdBy', 'name email avatar')
+      .populate('comments.user', 'name email avatar')
+      .populate('timeLogs.user', 'name email avatar');
+
+    res.status(201).json({ success: true, task: populated });
+  } catch (err) {
+    console.error('Log time error:', err);
+    res.status(500).json({ success: false, message: 'Failed to log time' });
   }
 };

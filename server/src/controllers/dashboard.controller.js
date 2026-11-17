@@ -42,7 +42,7 @@ exports.getDashboard = async (req, res) => {
     const overdueFilter = {
       ...taskFilter,
       dueDate: { $lt: now },
-      status: { $in: ['todo', 'in_progress'] },
+      status: { $in: ['backlog', 'todo', 'in_progress', 'in_review'] },
     };
 
     // Parallelize all independent aggregations and queries
@@ -143,7 +143,7 @@ exports.getDashboard = async (req, res) => {
     const statsMap = {};
     projectTaskStats.forEach(({ _id, count }) => {
       const pid = _id.project.toString();
-      if (!statsMap[pid]) statsMap[pid] = { todo: 0, in_progress: 0, done: 0, total: 0 };
+      if (!statsMap[pid]) statsMap[pid] = { backlog: 0, todo: 0, in_progress: 0, in_review: 0, done: 0, canceled: 0, total: 0 };
       statsMap[pid][_id.status] = count;
       statsMap[pid].total += count;
     });
@@ -154,7 +154,7 @@ exports.getDashboard = async (req, res) => {
       color: p.color,
       status: p.status,
       myRole: memberships.find((m) => m.project.toString() === p._id.toString())?.role,
-      taskStats: statsMap[p._id.toString()] || { todo: 0, in_progress: 0, done: 0, total: 0 },
+      taskStats: statsMap[p._id.toString()] || { backlog: 0, todo: 0, in_progress: 0, in_review: 0, done: 0, canceled: 0, total: 0 },
     }));
 
     // Deduplicate team attendance users and handle auto-clockout if exceeded 14h
@@ -187,7 +187,7 @@ exports.getDashboard = async (req, res) => {
     const teamAttendance = Array.from(uniqueUsers.values());
 
     // Normalize tasksByStatus and compute totalTasks without an extra countDocuments query
-    const statusSummary = { todo: 0, in_progress: 0, done: 0 };
+    const statusSummary = { backlog: 0, todo: 0, in_progress: 0, in_review: 0, done: 0, canceled: 0 };
     let totalTasks = 0;
     tasksByStatus.forEach(({ _id, count }) => {
       statusSummary[_id] = count;

@@ -56,8 +56,16 @@ export interface ProjectMember {
   joinedAt: string;
 }
 
-export type TaskStatus   = 'todo' | 'in_progress' | 'done';
+export type TaskStatus   = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'canceled';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+
+export interface TimeLog {
+  _id: string;
+  user: User;
+  minutes: number;
+  description?: string;
+  loggedAt: string;
+}
 
 export interface ChecklistItem {
   _id?: string;
@@ -89,6 +97,9 @@ export interface Task {
   checklist?: ChecklistItem[];
   comments: Comment[];
   isOverdue?: boolean;
+  estimatedHours?: number;
+  loggedMinutes?: number;
+  timeLogs?: TimeLog[];
   createdAt: string;
   updatedAt: string;
   // Joined on client
@@ -101,7 +112,7 @@ export interface Task {
 
 export interface DashboardData {
   totalTasks: number;
-  tasksByStatus: { todo: number; in_progress: number; done: number };
+  tasksByStatus: Record<string, number>;
   tasksByPriority: Array<{ _id: string; count: number }>;
   tasksPerUser: Array<{ userId: string; name: string; email: string; count: number }>;
   overdueCount: number;
@@ -223,10 +234,12 @@ export interface CreateTaskPayload {
   title: string;
   description?: string;
   assignedTo?: string | string[];
+  status?: TaskStatus;
   priority?: TaskPriority;
   dueDate?: string;
   tags?: string[];
   checklist?: ChecklistItem[];
+  estimatedHours?: number;
 }
 
 export interface TaskListResponse { success: boolean; tasks: Task[]; pagination: { total: number; page: number; limit: number; pages: number } }
@@ -251,8 +264,9 @@ export const tasksApi = {
   },
   create:        (pid: string, d: CreateTaskPayload)                => post<TaskResponse>(`/projects/${pid}/tasks`, d),
   get:           (pid: string, tid: string)                         => get<TaskResponse>(`/projects/${pid}/tasks/${tid}`),
-  update:        (pid: string, tid: string, d: Partial<CreateTaskPayload & { status: TaskStatus; checklist: ChecklistItem[] }>) => patch<TaskResponse>(`/projects/${pid}/tasks/${tid}`, d),
+  update:        (pid: string, tid: string, d: Partial<CreateTaskPayload & { status: TaskStatus; checklist: ChecklistItem[]; estimatedHours?: number }>) => patch<TaskResponse>(`/projects/${pid}/tasks/${tid}`, d),
   delete:        (pid: string, tid: string)                         => del<{ success: boolean; message: string }>(`/projects/${pid}/tasks/${tid}`),
+  logTime:       (pid: string, tid: string, d: { minutes: number; description?: string }) => post<TaskResponse>(`/projects/${pid}/tasks/${tid}/time-logs`, d),
   addComment:    (pid: string, tid: string, d: { text: string })    => post<{ success: boolean; comment: Comment }>(`/projects/${pid}/tasks/${tid}/comments`, d),
   updateComment: (pid: string, tid: string, cid: string, d: { text: string }) => patch<{ success: boolean; comment: Comment }>(`/projects/${pid}/tasks/${tid}/comments/${cid}`, d),
   deleteComment: (pid: string, tid: string, cid: string)            => del<{ success: boolean; message: string }>(`/projects/${pid}/tasks/${tid}/comments/${cid}`),

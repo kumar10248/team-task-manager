@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { projectsApi, tasksApi, meetingsApi, getPersonalizedMeetLink } from '@/lib/api';
 import type { Project, ProjectMember, Task, TaskStatus, TaskPriority, Comment, ChecklistItem, Meeting, User as ApiUser } from '@/lib/api';
+import { useTimer } from '@/lib/timer-context';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import Modal from '@/components/Model';
@@ -22,9 +23,12 @@ import ReactMarkdown from 'react-markdown';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_COLS: Array<{ key: TaskStatus; label: string; color: string }> = [
-  { key: 'todo',        label: 'To Do',       color: 'var(--text-muted)' },
+  { key: 'backlog',     label: 'Backlog',     color: '#94a3b8' },
+  { key: 'todo',        label: 'To Do',       color: '#cbd5e1' },
   { key: 'in_progress', label: 'In Progress',  color: '#818cf8' },
+  { key: 'in_review',   label: 'In Review',   color: '#38bdf8' },
   { key: 'done',        label: 'Done',         color: '#4ade80' },
+  { key: 'canceled',    label: 'Canceled',    color: '#64748b' },
 ];
 
 const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'urgent'];
@@ -37,6 +41,15 @@ const PRIORITY_COLORS: Record<TaskPriority, string> = {
   high: '#fb923c',
   urgent: '#f87171',
 };
+
+function formatMinutes(min?: number): string {
+  if (!min || min <= 0) return '0m';
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (h > 0 && m > 0) return `${h}h ${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
+}
 
 // ─── Task helper ──────────────────────────────────────────────────────────────
 
@@ -58,12 +71,13 @@ interface TaskFormState {
   status: TaskStatus;
   tags: string[];
   checklist: ChecklistItem[];
+  estimatedHours?: number;
 }
 
 const EMPTY_TASK_FORM: TaskFormState = {
   title: '', description: '', priority: 'medium',
   dueDate: '', assignedTo: [], status: 'todo',
-  tags: [], checklist: [],
+  tags: [], checklist: [], estimatedHours: 0,
 };
 
 // ─── Field label helper ───────────────────────────────────────────────────────
@@ -380,6 +394,29 @@ function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelet
             {isOverdue ? '⚠ ' : ''}{new Date(task.dueDate).toLocaleDateString()}
           </span>
         )}
+        {Boolean((task.loggedMinutes && task.loggedMinutes > 0) || (task.estimatedHours && task.estimatedHours > 0)) && (
+          <span
+            onClick={() => onOpenComments(task)}
+            style={{
+              fontSize: 11,
+              fontFamily: 'Outfit, sans-serif',
+              fontWeight: 500,
+              padding: '2px 7px',
+              borderRadius: 6,
+              background: 'rgba(56, 189, 248, 0.08)',
+              color: '#38bdf8',
+              border: '1px solid rgba(56, 189, 248, 0.2)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              cursor: 'pointer',
+            }}
+            title={`Time Logged: ${formatMinutes(task.loggedMinutes || 0)}${task.estimatedHours ? ` / Estimated: ${task.estimatedHours}h` : ''}`}
+          >
+            <Clock size={11} />
+            {formatMinutes(task.loggedMinutes || 0)}{task.estimatedHours ? ` / ${task.estimatedHours}h` : ''}
+          </span>
+        )}
       </div>
 
       {/* Status + actions */}
@@ -398,9 +435,12 @@ function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelet
           }}
           title={!canUpdateStatus ? 'Only the assignee or an admin can update task status' : ''}
         >
+          <option value="backlog">Backlog</option>
           <option value="todo">To Do</option>
           <option value="in_progress">In Progress</option>
+          <option value="in_review">In Review</option>
           <option value="done">Done</option>
+          <option value="canceled">Canceled</option>
         </select>
 
         <div style={{ display: 'flex', gap: 6 }}>
@@ -601,6 +641,8 @@ interface CommentsPanelProps {
   onClose: () => void;
   onCommentsUpdate?: (taskId: string, comments: Comment[]) => void;
   onChecklistUpdate?: (taskId: string, checklist: ChecklistItem[]) => void;
+  onStatusChange?: (taskId: string, status: TaskStatus) => void;
+  onTaskUpdate?: (updatedTask: Task) => void;
 }
 
 const QUICK_REACTIONS = [
@@ -611,7 +653,18 @@ const QUICK_REACTIONS = [
   { label: '🎉 Great job', text: '🎉 Awesome job on this!' },
 ];
 
-function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], onClose, onCommentsUpdate, onChecklistUpdate }: CommentsPanelProps) {
+function CommentsPanel({
+  task,
+  projectId,
+  currentUserId,
+  myRole,
+  members = [],
+  onClose,
+  onCommentsUpdate,
+  onChecklistUpdate,
+  onStatusChange,
+  onTaskUpdate,
+}: CommentsPanelProps) {
   const { user } = useAuth();
   const toast = useToast();
   const [comments, setComments] = useState<Comment[]>(task.comments || []);
@@ -624,11 +677,54 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const commentsEndRef = useRef<HTMLDivElement>(null);
 
+  // Agile & Time Logging State
+  const [taskStatus, setTaskStatus] = useState<TaskStatus>(task.status);
+  const [timeLogs, setTimeLogs] = useState(task.timeLogs || []);
+  const [loggedMinutes, setLoggedMinutes] = useState(task.loggedMinutes || 0);
+  const [estimatedHours, setEstimatedHours] = useState(task.estimatedHours || 0);
+
+  // Global Persistent Timer Hook
+  const {
+    activeTimer,
+    elapsedSeconds,
+    startTimer,
+    stopAndLog,
+    cancelTimer,
+    formatStopwatch,
+  } = useTimer();
+
+  const isCurrentTaskTiming = activeTimer?.taskId === task._id;
+
+  // Manual Time Log State
+  const [showLogForm, setShowLogForm] = useState(false);
+  const [manualMinutes, setManualMinutes] = useState('');
+  const [manualDesc, setManualDesc] = useState('');
+  const [submittingTime, setSubmittingTime] = useState(false);
+  const [showLogsList, setShowLogsList] = useState(false);
+
   const assignees = getTaskAssignees(task);
   const isAssignedToMe = currentUserId
     ? (assignees.length === 0 || assignees.some((u) => u._id === currentUserId))
     : true;
   const canManageChecklist = myRole === 'admin' || isAssignedToMe;
+
+  // Listen for real-time time-logged events (e.g. from the floating widget or other controls)
+  useEffect(() => {
+    const handleTimeLogged = (e: any) => {
+      if (e.detail?.taskId === task._id && e.detail?.updatedTask) {
+        const updated = e.detail.updatedTask;
+        if (updated.timeLogs) setTimeLogs(updated.timeLogs);
+        if (typeof updated.loggedMinutes === 'number') setLoggedMinutes(updated.loggedMinutes);
+        if (updated.comments) {
+          setComments(updated.comments);
+          if (onCommentsUpdate) onCommentsUpdate(task._id, updated.comments);
+        }
+        if (onTaskUpdate) onTaskUpdate(updated);
+      }
+    };
+    window.addEventListener('taskforge:timelogged', handleTimeLogged);
+    return () => window.removeEventListener('taskforge:timelogged', handleTimeLogged);
+  }, [task._id, onCommentsUpdate, onTaskUpdate]);
 
   // Fetch freshly populated task comments and checklist on open
   useEffect(() => {
@@ -637,13 +733,20 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
       .get(projectId, task._id)
       .then((res) => {
         if (!active) return;
-        if (res?.task?.comments) {
-          setComments(res.task.comments);
-          if (onCommentsUpdate) onCommentsUpdate(task._id, res.task.comments);
-        }
-        if (res?.task?.checklist) {
-          setTaskChecklist(res.task.checklist);
-          if (onChecklistUpdate) onChecklistUpdate(task._id, res.task.checklist);
+        if (res?.task) {
+          if (res.task.comments) {
+            setComments(res.task.comments);
+            if (onCommentsUpdate) onCommentsUpdate(task._id, res.task.comments);
+          }
+          if (res.task.checklist) {
+            setTaskChecklist(res.task.checklist);
+            if (onChecklistUpdate) onChecklistUpdate(task._id, res.task.checklist);
+          }
+          if (res.task.timeLogs) setTimeLogs(res.task.timeLogs);
+          if (typeof res.task.loggedMinutes === 'number') setLoggedMinutes(res.task.loggedMinutes);
+          if (typeof res.task.estimatedHours === 'number') setEstimatedHours(res.task.estimatedHours);
+          if (res.task.status) setTaskStatus(res.task.status);
+          if (onTaskUpdate) onTaskUpdate(res.task);
         }
       })
       .catch(console.error);
@@ -651,7 +754,52 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
     return () => {
       active = false;
     };
-  }, [projectId, task._id, onCommentsUpdate, onChecklistUpdate]);
+  }, [projectId, task._id, onCommentsUpdate, onChecklistUpdate, onTaskUpdate]);
+
+  const handleStatusUpdate = async (newStatus: TaskStatus) => {
+    setTaskStatus(newStatus);
+    if (onStatusChange) onStatusChange(task._id, newStatus);
+    try {
+      const res = await tasksApi.update(projectId, task._id, { status: newStatus });
+      if (res.success && res.task) {
+        if (onTaskUpdate) onTaskUpdate(res.task);
+        toast(`Task moved to ${STATUS_COLS.find((c) => c.key === newStatus)?.label || newStatus}`);
+      }
+    } catch {
+      toast('Failed to update status', 'error');
+    }
+  };
+
+  const handleLogManualTime = async (mins: number, note: string) => {
+    if (mins <= 0) return;
+    try {
+      setSubmittingTime(true);
+      const res = await tasksApi.logTime(projectId, task._id, { minutes: mins, description: note });
+      if (res.success && res.task) {
+        toast(`Logged ${formatMinutes(mins)} to task! ⏱️`, 'success');
+        setTimeLogs(res.task.timeLogs || []);
+        setLoggedMinutes(res.task.loggedMinutes || 0);
+        if (res.task.comments) {
+          setComments(res.task.comments);
+          if (onCommentsUpdate) onCommentsUpdate(task._id, res.task.comments);
+        }
+        if (onTaskUpdate) onTaskUpdate(res.task);
+        setManualMinutes('');
+        setManualDesc('');
+        setShowLogForm(false);
+      }
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to log time', 'error');
+    } finally {
+      setSubmittingTime(false);
+    }
+  };
+
+  const handleStopAndLogTimer = async () => {
+    setSubmittingTime(true);
+    await stopAndLog();
+    setSubmittingTime(false);
+  };
 
   const handleToggleChecklist = async (idx: number) => {
     const updated = taskChecklist.map((item, i) =>
@@ -863,23 +1011,43 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
   return (
     <Modal title={`Task Details & Discussion — ${task.title}`} onClose={onClose} width={580}>
       {/* Task preview header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 14, marginBottom: 14, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <span className={`badge badge-${task.priority}`}>{task.priority}</span>
-        <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'Outfit, sans-serif' }}>
-          {task.status === 'done' ? 'Completed task' : (task.status === 'in_progress' ? 'In Progress' : 'To Do')}
-        </span>
-        {(() => {
-          const assignees = getTaskAssignees(task);
-          if (assignees.length === 0) return null;
-          return (
-            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif', marginLeft: 6 }}>
-              • Assigned to {assignees.map((u) => u.name).join(', ')}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingBottom: 14, marginBottom: 14, borderBottom: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className={`badge badge-${task.priority}`}>{task.priority}</span>
+          <select
+            value={taskStatus}
+            disabled={!canManageChecklist}
+            onChange={(e) => handleStatusUpdate(e.target.value as TaskStatus)}
+            style={{
+              fontSize: 12,
+              padding: '4px 10px',
+              borderRadius: 8,
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              color: 'var(--text-primary)',
+              fontFamily: 'Outfit, sans-serif',
+              cursor: canManageChecklist ? 'pointer' : 'not-allowed',
+            }}
+          >
+            <option value="backlog">Backlog</option>
+            <option value="todo">To Do</option>
+            <option value="in_progress">In Progress</option>
+            <option value="in_review">In Review</option>
+            <option value="done">Done</option>
+            <option value="canceled">Canceled</option>
+          </select>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+          {task.dueDate && (
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
+              Due: {new Date(task.dueDate).toLocaleDateString()}
             </span>
-          );
-        })()}
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
-          {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
-        </span>
+          )}
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
+            {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
+          </span>
+        </div>
       </div>
 
       {/* Task description if present */}
@@ -890,6 +1058,256 @@ function CommentsPanel({ task, projectId, currentUserId, myRole, members = [], o
           </p>
         </div>
       )}
+
+      {/* Time Tracking Section */}
+      <div style={{ marginBottom: 18, padding: 14, background: 'rgba(255, 255, 255, 0.025)', borderRadius: 12, border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <span style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Clock size={14} color="#38bdf8" />
+            Time Tracking
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-primary)', fontWeight: 500 }}>
+              {formatMinutes(loggedMinutes)}
+              {estimatedHours > 0 ? ` / ${estimatedHours}h` : ''}
+            </span>
+            {estimatedHours > 0 && (
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
+                ({Math.round((loggedMinutes / (estimatedHours * 60)) * 100)}%)
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        {estimatedHours > 0 && (
+          <div style={{ height: 4, background: 'rgba(255, 255, 255, 0.06)', borderRadius: 2, overflow: 'hidden', marginBottom: 12 }}>
+            <div
+              style={{
+                height: '100%',
+                width: `${Math.min(100, Math.round((loggedMinutes / (estimatedHours * 60)) * 100))}%`,
+                background: loggedMinutes > estimatedHours * 60 ? '#f87171' : 'linear-gradient(90deg, #38bdf8, #818cf8)',
+                transition: 'width 0.3s ease',
+              }}
+            />
+          </div>
+        )}
+
+        {/* Actions row: Live stopwatch & Manual Log Time button */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+          {/* Stopwatch Controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {isCurrentTaskTiming ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)', padding: '4px 10px', borderRadius: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', boxShadow: '0 0 8px #ef4444' }} />
+                <span style={{ fontFamily: 'monospace', fontSize: 13, color: '#f87171', fontWeight: 600 }}>
+                  {formatStopwatch(elapsedSeconds)}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleStopAndLogTimer}
+                  disabled={submittingTime}
+                  style={{
+                    background: '#ef4444',
+                    border: 'none',
+                    color: '#fff',
+                    fontSize: 11,
+                    fontFamily: 'Outfit, sans-serif',
+                    fontWeight: 600,
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {submittingTime ? 'Logging…' : 'Stop & Log'}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelTimer}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 11 }}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : activeTimer ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
+                  Timing &quot;{activeTimer.taskTitle.slice(0, 15)}…&quot; ({formatStopwatch(elapsedSeconds)})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => startTimer(task, projectId)}
+                  style={{
+                    background: 'rgba(56, 189, 248, 0.1)',
+                    border: '1px solid rgba(56, 189, 248, 0.25)',
+                    color: '#38bdf8',
+                    padding: '4px 8px',
+                    borderRadius: 6,
+                    fontSize: 11,
+                    fontFamily: 'Outfit, sans-serif',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Switch timer to this task
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => startTimer(task, projectId)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: 'rgba(56, 189, 248, 0.1)',
+                  border: '1px solid rgba(56, 189, 248, 0.25)',
+                  color: '#38bdf8',
+                  padding: '5px 10px',
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontFamily: 'Outfit, sans-serif',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <Clock size={13} /> Start Timer
+              </button>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => setShowLogForm((prev) => !prev)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                background: 'rgba(255, 255, 255, 0.04)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                color: 'var(--text-secondary)',
+                padding: '5px 10px',
+                borderRadius: 8,
+                fontSize: 12,
+                fontFamily: 'Outfit, sans-serif',
+                cursor: 'pointer',
+              }}
+            >
+              <Plus size={13} /> {showLogForm ? 'Hide Log' : 'Manual Log'}
+            </button>
+            {timeLogs.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowLogsList((prev) => !prev)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  fontSize: 11,
+                  fontFamily: 'Outfit, sans-serif',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                {timeLogs.length} logs {showLogsList ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Manual Log Inputs Form */}
+        {showLogForm && (
+          <div style={{ marginTop: 12, padding: 12, background: 'rgba(255, 255, 255, 0.02)', borderRadius: 8, border: '1px solid rgba(255, 255, 255, 0.04)' }}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+              {[15, 30, 45, 60, 120].map((quickMins) => (
+                <button
+                  key={quickMins}
+                  type="button"
+                  onClick={() => setManualMinutes(quickMins.toString())}
+                  style={{
+                    background: manualMinutes === quickMins.toString() ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255, 255, 255, 0.03)',
+                    border: manualMinutes === quickMins.toString() ? '1px solid #38bdf8' : '1px solid rgba(255, 255, 255, 0.06)',
+                    color: manualMinutes === quickMins.toString() ? '#38bdf8' : 'var(--text-secondary)',
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    fontSize: 11,
+                    fontFamily: 'Outfit, sans-serif',
+                    cursor: 'pointer',
+                  }}
+                >
+                  +{formatMinutes(quickMins)}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="number"
+                min={1}
+                placeholder="Minutes (e.g. 45)"
+                value={manualMinutes}
+                onChange={(e) => setManualMinutes(e.target.value)}
+                style={{ width: 130, fontSize: 12, padding: '6px 10px' }}
+              />
+              <input
+                type="text"
+                placeholder="Work description / note…"
+                value={manualDesc}
+                onChange={(e) => setManualDesc(e.target.value)}
+                style={{ flex: 1, fontSize: 12, padding: '6px 10px' }}
+              />
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={submittingTime || !manualMinutes || parseInt(manualMinutes, 10) <= 0}
+                onClick={() => handleLogManualTime(parseInt(manualMinutes, 10), manualDesc.trim())}
+                style={{ fontSize: 12, padding: '0 12px' }}
+              >
+                {submittingTime ? 'Logging…' : 'Log'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Time Logs History List */}
+        {showLogsList && timeLogs.length > 0 && (
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 150, overflowY: 'auto' }}>
+            {timeLogs.map((tl: any, i: number) => {
+              const tlUser = typeof tl.user === 'object' ? tl.user : members.find((m) => m.user._id === tl.user)?.user;
+              const name = tlUser?.name || 'Member';
+              return (
+                <div
+                  key={tl._id || i}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    background: 'rgba(255, 255, 255, 0.015)',
+                    border: '1px solid rgba(255, 255, 255, 0.03)',
+                    fontSize: 12,
+                    fontFamily: 'Outfit, sans-serif',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{name}</span>
+                    {tl.description && (
+                      <span style={{ color: 'var(--text-secondary)' }}>— {tl.description}</span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}>
+                    <span style={{ color: '#38bdf8', fontWeight: 600 }}>{formatMinutes(tl.minutes)}</span>
+                    <span style={{ fontSize: 11 }}>{new Date(tl.loggedAt).toLocaleDateString()}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Subtasks Checklist Section */}
       <div style={{ marginBottom: 20, padding: 14, background: 'rgba(255, 255, 255, 0.025)', borderRadius: 12, border: '1px solid rgba(255, 255, 255, 0.05)' }}>
@@ -1343,7 +1761,8 @@ export default function ProjectDetailPage() {
   const [tasks, setTasks]       = useState<Task[]>([]);
   const [myRole, setMyRole]     = useState<'admin' | 'member'>('member');
   const [loading, setLoading]   = useState(true);
-  const [tab, setTab]           = useState<'board' | 'list' | 'meetings' | 'members'>('board');
+  const [tab, setTab]           = useState<'board' | 'list' | 'calendar' | 'meetings' | 'members'>('board');
+  const [calendarDate, setCalendarDate] = useState<Date>(() => new Date());
 
   // Project Meetings Tab State
   const [projectMeetings, setProjectMeetings]                 = useState<Meeting[]>([]);
@@ -1456,9 +1875,22 @@ export default function ProjectDetailPage() {
     };
   }, [user, id, router, toast]);
 
+  // Listen for global real-time time logged events to update task cards & stats instantly
+  useEffect(() => {
+    const handleGlobalTimeLogged = (e: any) => {
+      if (e.detail?.taskId && e.detail?.updatedTask) {
+        setTasks((prev) =>
+          prev.map((t) => (t._id === e.detail.taskId ? e.detail.updatedTask : t))
+        );
+      }
+    };
+    window.addEventListener('taskforge:timelogged', handleGlobalTimeLogged);
+    return () => window.removeEventListener('taskforge:timelogged', handleGlobalTimeLogged);
+  }, []);
+
   // Load project meetings
   useEffect(() => {
-    if (tab !== 'meetings') return;
+    if (tab !== 'meetings' && tab !== 'calendar') return;
     let active = true;
     meetingsApi.list({ projectId: id })
       .then((res) => {
@@ -1542,9 +1974,12 @@ export default function ProjectDetailPage() {
     setTimeout(() => setCopiedMeetingId(null), 2000);
   };
 
-  const openCreateTask = useCallback(() => {
+  const openCreateTask = useCallback((defaultDueDate?: string | React.MouseEvent) => {
     setEditingTask(null);
-    setTaskForm(EMPTY_TASK_FORM);
+    setTaskForm({
+      ...EMPTY_TASK_FORM,
+      dueDate: typeof defaultDueDate === 'string' ? defaultDueDate : '',
+    });
     setNewChecklistTitle('');
     setNewTagInput('');
     setIsTagDeleteMode(false);
@@ -1554,14 +1989,15 @@ export default function ProjectDetailPage() {
   const openEditTask = useCallback((task: Task) => {
     setEditingTask(task);
     setTaskForm({
-      title:       task.title,
-      description: task.description ?? '',
-      priority:    task.priority,
-      dueDate:     task.dueDate ? task.dueDate.slice(0, 10) : '',
-      assignedTo:  getTaskAssignees(task).map((u) => u._id),
-      status:      task.status,
-      tags:        task.tags ? [...task.tags] : [],
-      checklist:   task.checklist ? task.checklist.map((c) => ({ ...c })) : [],
+      title:          task.title,
+      description:    task.description ?? '',
+      priority:       task.priority,
+      dueDate:        task.dueDate ? task.dueDate.slice(0, 10) : '',
+      assignedTo:     getTaskAssignees(task).map((u) => u._id),
+      status:         task.status,
+      tags:           task.tags ? [...task.tags] : [],
+      checklist:      task.checklist ? task.checklist.map((c) => ({ ...c })) : [],
+      estimatedHours: task.estimatedHours ?? 0,
     });
     setNewChecklistTitle('');
     setNewTagInput('');
@@ -1982,6 +2418,105 @@ export default function ProjectDetailPage() {
     }
   };
 
+  // ── Project Calendar View State & Computations ──
+  const calYear = calendarDate.getFullYear();
+  const calMonth = calendarDate.getMonth();
+
+  const prevMonth = () => setCalendarDate(new Date(calYear, calMonth - 1, 1));
+  const nextMonth = () => setCalendarDate(new Date(calYear, calMonth + 1, 1));
+  const gotoToday = () => setCalendarDate(new Date());
+
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  const tasksByDate = useMemo(() => {
+    const map: Record<string, Task[]> = {};
+    filteredTasks.forEach((t) => {
+      if (t.dueDate) {
+        const d = new Date(t.dueDate);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        if (!map[key]) map[key] = [];
+        map[key].push(t);
+      }
+    });
+    return map;
+  }, [filteredTasks]);
+
+  const meetingsByDate = useMemo(() => {
+    const map: Record<string, Meeting[]> = {};
+    projectMeetings.forEach((m) => {
+      if (m.startTime) {
+        const d = new Date(m.startTime);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        if (!map[key]) map[key] = [];
+        map[key].push(m);
+      }
+    });
+    return map;
+  }, [projectMeetings]);
+
+  const calendarCells = useMemo(() => {
+    const cells: Array<{
+      dayNumber: number;
+      dateKey: string;
+      isCurrentMonth: boolean;
+      isToday: boolean;
+    }> = [];
+
+    const firstDayOfWeek = new Date(calYear, calMonth, 1).getDay();
+    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+    const daysInPrevMonth = new Date(calYear, calMonth, 0).getDate();
+
+    const today = new Date();
+    const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+    // Leading days
+    for (let i = firstDayOfWeek - 1; i >= 0; i--) {
+      const d = daysInPrevMonth - i;
+      const prevM = calMonth === 0 ? 11 : calMonth - 1;
+      const prevY = calMonth === 0 ? calYear - 1 : calYear;
+      const key = `${prevY}-${String(prevM + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      cells.push({
+        dayNumber: d,
+        dateKey: key,
+        isCurrentMonth: false,
+        isToday: key === todayKey,
+      });
+    }
+
+    // Current month days
+    for (let d = 1; d <= daysInMonth; d++) {
+      const key = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      cells.push({
+        dayNumber: d,
+        dateKey: key,
+        isCurrentMonth: true,
+        isToday: key === todayKey,
+      });
+    }
+
+    // Trailing days
+    const totalSlots = cells.length % 7 === 0 ? cells.length : cells.length + (7 - (cells.length % 7));
+    const finalSlots = totalSlots < 35 ? 35 : totalSlots;
+    const needed = finalSlots - cells.length;
+
+    for (let d = 1; d <= needed; d++) {
+      const nextM = calMonth === 11 ? 0 : calMonth + 1;
+      const nextY = calMonth === 11 ? calYear + 1 : calYear;
+      const key = `${nextY}-${String(nextM + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      cells.push({
+        dayNumber: d,
+        dateKey: key,
+        isCurrentMonth: false,
+        isToday: key === todayKey,
+      });
+    }
+
+    return cells;
+  }, [calYear, calMonth]);
+
   // ── Loading state ───────────────────────────────────────────────────────────
 
   if (loading) return (
@@ -2016,41 +2551,40 @@ export default function ProjectDetailPage() {
           </select>
         </div>
 
-        {/* Status (only when editing) */}
-        {editingTask ? (
-          <div>
-            <FieldLabel>Status</FieldLabel>
-            <select value={taskForm.status} onChange={(e) => setTaskForm({ ...taskForm, status: e.target.value as TaskStatus })}>
-              <option value="todo">To Do</option>
-              <option value="in_progress">In Progress</option>
-              <option value="done">Done</option>
-            </select>
-          </div>
-        ) : (
-          <div>
-            <FieldLabel>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <Calendar size={13} color="var(--accent-primary)" /> Due Date
-              </span>
-            </FieldLabel>
-            <input
-              type="date"
-              value={taskForm.dueDate}
-              onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value })}
-              onClick={(e) => {
-                try {
-                  e.currentTarget.showPicker?.();
-                } catch {}
-              }}
-              style={{ colorScheme: 'dark', cursor: 'pointer' }}
-            />
-          </div>
-        )}
+        {/* Status */}
+        <div>
+          <FieldLabel>Status</FieldLabel>
+          <select value={taskForm.status} onChange={(e) => setTaskForm({ ...taskForm, status: e.target.value as TaskStatus })}>
+            <option value="backlog">Backlog</option>
+            <option value="todo">To Do</option>
+            <option value="in_progress">In Progress</option>
+            <option value="in_review">In Review</option>
+            <option value="done">Done</option>
+            <option value="canceled">Canceled</option>
+          </select>
+        </div>
       </div>
 
-      {/* Due date when editing (3rd row) */}
-      {editingTask && (
-        <div style={{ marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+        {/* Estimated Hours */}
+        <div>
+          <FieldLabel>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Clock size={13} color="var(--accent-primary)" /> Estimated Hours
+            </span>
+          </FieldLabel>
+          <input
+            type="number"
+            min={0}
+            step={0.5}
+            placeholder="e.g. 4"
+            value={taskForm.estimatedHours !== undefined && taskForm.estimatedHours > 0 ? taskForm.estimatedHours : ''}
+            onChange={(e) => setTaskForm({ ...taskForm, estimatedHours: parseFloat(e.target.value) || 0 })}
+          />
+        </div>
+
+        {/* Due Date */}
+        <div>
           <FieldLabel>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <Calendar size={13} color="var(--accent-primary)" /> Due Date
@@ -2068,7 +2602,7 @@ export default function ProjectDetailPage() {
             style={{ colorScheme: 'dark', cursor: 'pointer' }}
           />
         </div>
-      )}
+      </div>
 
       {/* Assignees (Multi-Member Selector) */}
       <div style={{ marginBottom: 20 }}>
@@ -2681,7 +3215,7 @@ export default function ProjectDetailPage() {
 
           {/* ── Tabs ── */}
           <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 32 }}>
-            {(['board', 'list', 'meetings', 'members'] as const).map((t) => (
+            {(['board', 'list', 'calendar', 'meetings', 'members'] as const).map((t) => (
               <button key={t} onClick={() => setTab(t)} style={{
                 background: 'none', border: 'none', cursor: 'pointer', padding: '12px 20px',
                 fontFamily: 'Outfit, sans-serif', fontSize: 14, fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase',
@@ -2696,8 +3230,8 @@ export default function ProjectDetailPage() {
             ))}
           </div>
 
-          {/* ── Search & Filter Bar (shown on Board & List tabs) ── */}
-          {(tab === 'board' || tab === 'list') && (
+          {/* ── Search & Filter Bar (shown on Board, List & Calendar tabs) ── */}
+          {(tab === 'board' || tab === 'list' || tab === 'calendar') && (
             <div
               style={{
                 display: 'flex',
@@ -2953,7 +3487,7 @@ export default function ProjectDetailPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    {['Task', 'Subtasks', 'Status', 'Priority', 'Assignee', 'Due Date', 'Discussion', ''].map((h, i) => (
+                    {['Task', 'Subtasks', 'Status', 'Priority', 'Assignee', 'Time Logged', 'Due Date', 'Discussion', ''].map((h, i) => (
                       <th key={h || `actions-${i}`} style={{ padding: '16px 20px', textAlign: 'left', fontSize: 12, fontFamily: 'Outfit, sans-serif', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>{h}</th>
                     ))}
                   </tr>
@@ -2961,7 +3495,7 @@ export default function ProjectDetailPage() {
                 <tbody>
                   {filteredTasks.length === 0 ? (
                     <tr>
-                      <td colSpan={8} style={{ padding: '60px', textAlign: 'center', fontSize: 14, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)' }}>
+                      <td colSpan={9} style={{ padding: '60px', textAlign: 'center', fontSize: 14, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)' }}>
                         {isFiltering ? (
                           <span>
                             No tasks match your filters.{' '}
@@ -2979,7 +3513,7 @@ export default function ProjectDetailPage() {
                       </td>
                     </tr>
                   ) : filteredTasks.map((t) => {
-                    const isOverdue = !!t.dueDate && t.status !== 'done' && new Date() > new Date(t.dueDate);
+                    const isOverdue = !!t.dueDate && t.status !== 'done' && t.status !== 'canceled' && new Date() > new Date(t.dueDate);
                     const assignees = getTaskAssignees(t);
                     const isAssignedToMe = user?._id ? (assignees.length === 0 || assignees.some((u) => u._id === user._id)) : true;
                     const canUpdateStatus = myRole === 'admin' || isAssignedToMe;
@@ -3047,9 +3581,12 @@ export default function ProjectDetailPage() {
                             }}
                             title={!canUpdateStatus ? 'Only the assignee or an admin can update task status' : ''}
                           >
+                            <option value="backlog">Backlog</option>
                             <option value="todo">To Do</option>
                             <option value="in_progress">In Progress</option>
+                            <option value="in_review">In Review</option>
                             <option value="done">Done</option>
+                            <option value="canceled">Canceled</option>
                           </select>
                         </td>
                         <td style={{ padding: '16px 20px' }}><span className={`badge badge-${t.priority}`}>{t.priority}</span></td>
@@ -3100,6 +3637,16 @@ export default function ProjectDetailPage() {
                             );
                           })()}
                         </td>
+                        <td style={{ padding: '16px 20px', fontSize: 12, fontFamily: 'Outfit, sans-serif' }}>
+                          {((t.loggedMinutes && t.loggedMinutes > 0) || (t.estimatedHours && t.estimatedHours > 0)) ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#38bdf8', background: 'rgba(56, 189, 248, 0.08)', padding: '2px 8px', borderRadius: 6, border: '1px solid rgba(56, 189, 248, 0.2)' }}>
+                              <Clock size={11} />
+                              {formatMinutes(t.loggedMinutes || 0)}{t.estimatedHours ? ` / ${t.estimatedHours}h` : ''}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)' }}>—</span>
+                          )}
+                        </td>
                         <td style={{ padding: '16px 20px', fontSize: 13, fontFamily: 'Outfit, sans-serif', fontWeight: 500, color: isOverdue ? '#f87171' : 'var(--text-muted)' }}>
                           {t.dueDate ? new Date(t.dueDate).toLocaleDateString() : '—'}
                         </td>
@@ -3137,6 +3684,283 @@ export default function ProjectDetailPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* ══ Calendar view ══ */}
+          {tab === 'calendar' && (
+            <div
+              className="glass-panel"
+              style={{
+                padding: 24,
+                overflow: 'hidden',
+                ...(project?.hasActiveSubscription === false ? { filter: 'blur(5px)', opacity: 0.35, pointerEvents: 'none', userSelect: 'none' } : {}),
+              }}
+            >
+              {/* Calendar Controls */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <h3 style={{ fontFamily: 'Fraunces, serif', fontSize: 26, fontWeight: 400, color: 'var(--text-primary)', margin: 0 }}>
+                    {monthNames[calMonth]} {calYear}
+                  </h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: 4 }}>
+                    <button
+                      type="button"
+                      onClick={prevMonth}
+                      style={{ background: 'none', border: 'none', color: 'var(--text-primary)', padding: '6px 10px', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                      title="Previous Month"
+                    >
+                      <ArrowLeft size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={gotoToday}
+                      style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: 'var(--text-primary)', fontSize: 12, fontFamily: 'Outfit, sans-serif', fontWeight: 500, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}
+                    >
+                      Today
+                    </button>
+                    <button
+                      type="button"
+                      onClick={nextMonth}
+                      style={{ background: 'none', border: 'none', color: 'var(--text-primary)', padding: '6px 10px', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                      title="Next Month"
+                    >
+                      <ArrowRight size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  {/* Legend */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent-primary)' }} />
+                      Tasks Due
+                    </span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <Video size={12} color="#38bdf8" />
+                      Video Syncs
+                    </span>
+                  </div>
+
+                  {myRole === 'admin' && project?.hasActiveSubscription !== false && (
+                    <button
+                      className="btn-primary"
+                      onClick={() => openCreateTask()}
+                      style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}
+                    >
+                      <Plus size={14} /> Add Task
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Day of Week Headers */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, marginBottom: 8 }}>
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+                  <div
+                    key={day}
+                    style={{
+                      textAlign: 'center',
+                      padding: '8px 0',
+                      fontSize: 12,
+                      fontFamily: 'Outfit, sans-serif',
+                      fontWeight: 600,
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    {day}
+                  </div>
+                ))}
+              </div>
+
+              {/* Calendar Days Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 }}>
+                {calendarCells.map((cell, idx) => {
+                  const dayTasks = tasksByDate[cell.dateKey] || [];
+                  const dayMeetings = meetingsByDate[cell.dateKey] || [];
+
+                  return (
+                    <div
+                      key={`${cell.dateKey}-${idx}`}
+                      style={{
+                        minHeight: 120,
+                        background: cell.isCurrentMonth
+                          ? (cell.isToday ? 'rgba(129, 140, 248, 0.04)' : 'rgba(255, 255, 255, 0.015)')
+                          : 'rgba(255, 255, 255, 0.005)',
+                        border: cell.isToday
+                          ? '1px solid var(--accent-primary)'
+                          : '1px solid rgba(255, 255, 255, 0.04)',
+                        borderRadius: 12,
+                        padding: 8,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 6,
+                        opacity: cell.isCurrentMonth ? 1 : 0.45,
+                        transition: 'all 0.2s',
+                        position: 'relative',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = cell.isToday ? 'var(--accent-primary)' : 'rgba(255,255,255,0.12)';
+                        const addBtn = e.currentTarget.querySelector('.cal-quick-add') as HTMLElement | null;
+                        if (addBtn) addBtn.style.opacity = '1';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = cell.isToday ? 'var(--accent-primary)' : 'rgba(255,255,255,0.04)';
+                        const addBtn = e.currentTarget.querySelector('.cal-quick-add') as HTMLElement | null;
+                        if (addBtn) addBtn.style.opacity = '0';
+                      }}
+                    >
+                      {/* Cell Day Header */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                        <span
+                          style={{
+                            fontSize: 12,
+                            fontFamily: 'Outfit, sans-serif',
+                            fontWeight: cell.isToday ? 700 : 500,
+                            color: cell.isToday ? 'var(--accent-primary)' : (cell.isCurrentMonth ? 'var(--text-primary)' : 'var(--text-muted)'),
+                            width: 22,
+                            height: 22,
+                            borderRadius: '50%',
+                            background: cell.isToday ? 'rgba(129, 140, 248, 0.2)' : 'transparent',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          {cell.dayNumber}
+                        </span>
+
+                        {myRole === 'admin' && project?.hasActiveSubscription !== false && (
+                          <button
+                            type="button"
+                            className="cal-quick-add"
+                            onClick={() => openCreateTask(cell.dateKey)}
+                            title={`Add task due on ${cell.dateKey}`}
+                            style={{
+                              background: 'rgba(255,255,255,0.06)',
+                              border: 'none',
+                              color: 'var(--text-secondary)',
+                              cursor: 'pointer',
+                              width: 18,
+                              height: 18,
+                              borderRadius: 4,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              opacity: 0,
+                              transition: 'opacity 0.15s',
+                              padding: 0,
+                            }}
+                          >
+                            <Plus size={11} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Day Meetings */}
+                      {dayMeetings.map((m) => (
+                        <div
+                          key={m._id}
+                          onClick={() => {
+                            if (m.meetLink) {
+                              const pLink = user?.name ? getPersonalizedMeetLink(m.meetLink, user.name) : m.meetLink;
+                              window.open(pLink, '_blank');
+                            }
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            padding: '3px 6px',
+                            borderRadius: 6,
+                            background: 'rgba(56, 189, 248, 0.12)',
+                            border: '1px solid rgba(56, 189, 248, 0.25)',
+                            fontSize: 11,
+                            fontFamily: 'Outfit, sans-serif',
+                            color: '#38bdf8',
+                            cursor: 'pointer',
+                            overflow: 'hidden',
+                            whiteSpace: 'nowrap',
+                            textOverflow: 'ellipsis',
+                          }}
+                          title={`Meeting: ${m.title} (${new Date(m.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}) - Click to Join`}
+                        >
+                          <Video size={11} style={{ flexShrink: 0 }} />
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{m.title}</span>
+                          <span style={{ fontSize: 9, opacity: 0.8, flexShrink: 0 }}>
+                            {new Date(m.startTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      ))}
+
+                      {/* Day Tasks */}
+                      {dayTasks.map((t) => {
+                        const pColor = PRIORITY_COLORS[t.priority] || 'var(--accent-primary)';
+                        const isDone = t.status === 'done';
+                        return (
+                          <div
+                            key={t._id}
+                            onClick={() => setCommentTask(t)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 5,
+                              padding: '3px 6px',
+                              borderRadius: 6,
+                              background: isDone ? 'rgba(74, 222, 128, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                              border: isDone ? '1px solid rgba(74, 222, 128, 0.2)' : '1px solid rgba(255, 255, 255, 0.06)',
+                              fontSize: 11,
+                              fontFamily: 'Outfit, sans-serif',
+                              color: isDone ? '#4ade80' : 'var(--text-primary)',
+                              cursor: 'pointer',
+                              overflow: 'hidden',
+                              whiteSpace: 'nowrap',
+                              textOverflow: 'ellipsis',
+                              transition: 'all 0.15s',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.borderColor = pColor;
+                              e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.borderColor = isDone ? 'rgba(74, 222, 128, 0.2)' : 'rgba(255, 255, 255, 0.06)';
+                              e.currentTarget.style.background = isDone ? 'rgba(74, 222, 128, 0.08)' : 'rgba(255, 255, 255, 0.03)';
+                            }}
+                            title={`${t.title} [${t.status}] - Click to view details & log time`}
+                          >
+                            <span
+                              style={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: '50%',
+                                background: pColor,
+                                flexShrink: 0,
+                              }}
+                            />
+                            <span
+                              style={{
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                flex: 1,
+                                textDecoration: isDone ? 'line-through' : 'none',
+                                opacity: isDone ? 0.75 : 1,
+                              }}
+                            >
+                              {t.title}
+                            </span>
+                            {((t.loggedMinutes && t.loggedMinutes > 0) || (t.estimatedHours && t.estimatedHours > 0)) && (
+                              <Clock size={10} color="#38bdf8" style={{ flexShrink: 0 }} />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
@@ -3449,6 +4273,11 @@ export default function ProjectDetailPage() {
             );
           }}
           onChecklistUpdate={handleChecklistUpdate}
+          onStatusChange={handleStatusChange}
+          onTaskUpdate={(updatedTask) => {
+            setTasks((prev) => prev.map((t) => (t._id === updatedTask._id ? updatedTask : t)));
+            setCommentTask(updatedTask);
+          }}
         />
       )}
 
