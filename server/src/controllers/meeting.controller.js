@@ -52,7 +52,9 @@ exports.getMeetings = async (req, res) => {
       .sort({ startTime: req.query.scope === 'past' ? -1 : 1 })
       .lean();
 
-    // Dynamically mark ongoing if within time window and still marked scheduled
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+
+    // Dynamically mark ongoing if within time window and normalize meetLink to internal TaskForge /room/ URL
     const updated = meetings.map((m) => {
       const start = new Date(m.startTime);
       const end = new Date(m.endTime);
@@ -64,8 +66,26 @@ exports.getMeetings = async (req, res) => {
           dynamicStatus = 'completed';
         }
       }
+
+      let meetLink = m.meetLink || '';
+      if (meetLink.includes('mirotalk.com')) {
+        try {
+          const u = new URL(meetLink);
+          let roomId = '';
+          if (u.pathname.startsWith('/join/')) {
+            roomId = u.pathname.replace('/join/', '');
+          } else {
+            roomId = u.searchParams.get('room') || '';
+          }
+          if (roomId) {
+            meetLink = `${clientUrl}/room/${encodeURIComponent(roomId)}`;
+          }
+        } catch {}
+      }
+
       return {
         ...m,
+        meetLink,
         status: dynamicStatus,
       };
     });
@@ -104,13 +124,27 @@ exports.createMeeting = async (req, res) => {
       }
     }
 
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
     let finalLink = (meetLink || '').trim();
     if (!finalLink) {
       const slug = title
         .toLowerCase()
         .replace(/[^a-z0-9]/g, '-')
         .slice(0, 16);
-      finalLink = `https://p2p.mirotalk.com/join?room=taskforge-${slug}-${Date.now().toString(36)}&notify=0`;
+      finalLink = `${clientUrl}/room/taskforge-${slug}-${Date.now().toString(36)}`;
+    } else if (finalLink.includes('mirotalk.com')) {
+      try {
+        const u = new URL(finalLink);
+        let roomId = '';
+        if (u.pathname.startsWith('/join/')) {
+          roomId = u.pathname.replace('/join/', '');
+        } else {
+          roomId = u.searchParams.get('room') || '';
+        }
+        if (roomId) {
+          finalLink = `${clientUrl}/room/${encodeURIComponent(roomId)}`;
+        }
+      } catch {}
     }
 
     // Determine final participants list:

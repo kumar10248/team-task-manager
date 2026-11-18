@@ -3,7 +3,7 @@ import { useEffect, useState, useRef, useMemo, FormEvent, useCallback } from 're
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
-import { projectsApi, tasksApi, meetingsApi, getPersonalizedMeetLink, cyclesApi, modulesApi, docsApi, intakeApi } from '@/lib/api';
+import { projectsApi, tasksApi, meetingsApi, getPersonalizedMeetLink, generateTaskForgeRoomUrl, cyclesApi, modulesApi, docsApi, intakeApi } from '@/lib/api';
 import type {
   Project, ProjectMember, Task, TaskStatus, TaskPriority, Comment, ChecklistItem,
   Meeting, User as ApiUser, Cycle, Module, CycleStatus, ModuleStatus,
@@ -2241,7 +2241,7 @@ export default function ProjectDetailPage() {
       const start = new Date(meetingStartTime);
       const end = new Date(start.getTime() + meetingDuration * 60000);
       const slug = (project?.name || 'project').toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 16);
-      const link = meetingMeetLink.trim() || `https://p2p.mirotalk.com/join?room=taskforge-${slug}-${Date.now().toString(36)}&notify=0`;
+      const link = meetingMeetLink.trim() || generateTaskForgeRoomUrl(project?.name || 'project');
       const participants = members.map((m) => m.user?._id).filter(Boolean);
 
       const res = await meetingsApi.create({

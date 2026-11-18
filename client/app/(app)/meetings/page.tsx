@@ -11,6 +11,7 @@ import {
   Project,
   User,
   getPersonalizedMeetLink,
+  generateTaskForgeRoomUrl,
 } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
@@ -162,11 +163,7 @@ function MeetingsContent() {
   }, [formProject]);
 
   const generateInstantRoomUrl = (title: string) => {
-    const slug = (title || 'sync')
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '-')
-      .slice(0, 16);
-    return `https://p2p.mirotalk.com/join?room=taskforge-${slug}-${Date.now().toString(36)}&notify=0`;
+    return generateTaskForgeRoomUrl(title);
   };
 
   const openScheduleModal = useCallback((prefillProject?: string) => {

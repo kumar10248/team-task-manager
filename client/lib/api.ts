@@ -552,31 +552,64 @@ export const meetingsApi = {
 };
 
 /**
- * Appends or injects the user's TaskForge account display name and avatar URL into the meeting link
- * so WebRTC conference platforms (MiroTalk, Jitsi, etc.) pre-fill their name and profile photo automatically,
- * and sets `notify=0` so MiroTalk suppresses the automatic "Share the room" QR popup modal.
+ * Generates an internal TaskForge meeting room URL (e.g. /room/taskforge-sync-xxx).
+ * The user's browser URL bar will show our domain fully, keeping all video meetings under TaskForge branding.
+ */
+export function generateTaskForgeRoomUrl(title: string = 'sync'): string {
+  const slug = (title || 'sync')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '-')
+    .slice(0, 16);
+  const roomId = `taskforge-${slug}-${Date.now().toString(36)}`;
+  if (typeof window !== 'undefined' && window.location.origin) {
+    return `${window.location.origin}/room/${roomId}`;
+  }
+  return `/room/${roomId}`;
+}
+
+/**
+ * Normalizes any meeting link (internal /room/ or external legacy mirotalk)
+ * to an internal TaskForge /room/<roomId> URL, pre-filling user display name and avatar,
+ * ensuring our application URL shows fully in the browser address bar.
  */
 export function getPersonalizedMeetLink(meetLink: string, userName?: string, userAvatar?: string | null): string {
   if (!meetLink) return meetLink;
   try {
-    const url = new URL(meetLink);
-    if (url.hostname.includes('mirotalk')) {
-      if (url.pathname.startsWith('/join/')) {
-        const roomName = url.pathname.replace('/join/', '');
-        const nameParam = userName ? `&name=${encodeURIComponent(userName)}` : '';
-        const avatarParam = userAvatar ? `&avatar=${encodeURIComponent(userAvatar)}` : '';
-        return `https://${url.hostname}/join?room=${encodeURIComponent(roomName)}${nameParam}${avatarParam}&notify=0`;
-      }
-      if (userName) {
-        url.searchParams.set('name', userName);
-      }
-      if (userAvatar) {
-        url.searchParams.set('avatar', userAvatar);
-      }
-      // notify=0 tells MiroTalk client to skip the "Share the room" QR code modal on join
-      url.searchParams.set('notify', '0');
+    const base = typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_CLIENT_URL || 'http://localhost:3000');
+
+    // If it's a relative /room/ link, resolve against base
+    if (meetLink.startsWith('/room/')) {
+      const url = new URL(meetLink, base);
+      if (userName) url.searchParams.set('name', userName);
+      if (userAvatar) url.searchParams.set('avatar', userAvatar);
       return url.toString();
     }
+
+    const url = new URL(meetLink, base);
+
+    // If it's a legacy or external MiroTalk link, convert it to our native /room/ link!
+    if (url.hostname.includes('mirotalk')) {
+      let roomId = '';
+      if (url.pathname.startsWith('/join/')) {
+        roomId = url.pathname.replace('/join/', '');
+      } else {
+        roomId = url.searchParams.get('room') || '';
+      }
+      if (roomId) {
+        const roomUrl = new URL(`/room/${encodeURIComponent(roomId)}`, base);
+        if (userName) roomUrl.searchParams.set('name', userName);
+        if (userAvatar) roomUrl.searchParams.set('avatar', userAvatar);
+        return roomUrl.toString();
+      }
+    }
+
+    // If it's already an internal /room/ link on our domain
+    if (url.pathname.startsWith('/room/')) {
+      if (userName) url.searchParams.set('name', userName);
+      if (userAvatar) url.searchParams.set('avatar', userAvatar);
+      return url.toString();
+    }
+
     if (url.hostname.includes('jit.si')) {
       const hashParts: string[] = [];
       if (userName) {
