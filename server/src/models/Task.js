@@ -142,6 +142,16 @@ const taskSchema = new mongoose.Schema(
         maxlength: 30,
       },
     ],
+    cycle: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Cycle',
+      default: null,
+    },
+    module: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Module',
+      default: null,
+    },
     checklist: [checklistItemSchema],
     timeLogs: [timeLogSchema],
     comments: [commentSchema],
@@ -190,5 +200,7 @@ taskSchema.index({ project: 1, assignedTo: 1 });
 taskSchema.index({ assignedTo: 1, dueDate: 1 });
 taskSchema.index({ status: 1, dueDate: 1 });
 taskSchema.index({ project: 1, updatedAt: -1 });
+taskSchema.index({ project: 1, cycle: 1 });
+taskSchema.index({ project: 1, module: 1 });
 
 module.exports = mongoose.model('Task', taskSchema);

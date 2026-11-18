@@ -3,8 +3,8 @@ import { useEffect, useState, useRef, useMemo, FormEvent, useCallback } from 're
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
-import { projectsApi, tasksApi, meetingsApi, getPersonalizedMeetLink } from '@/lib/api';
-import type { Project, ProjectMember, Task, TaskStatus, TaskPriority, Comment, ChecklistItem, Meeting, User as ApiUser } from '@/lib/api';
+import { projectsApi, tasksApi, meetingsApi, getPersonalizedMeetLink, cyclesApi, modulesApi } from '@/lib/api';
+import type { Project, ProjectMember, Task, TaskStatus, TaskPriority, Comment, ChecklistItem, Meeting, User as ApiUser, Cycle, Module, CycleStatus, ModuleStatus } from '@/lib/api';
 import { useTimer } from '@/lib/timer-context';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
@@ -16,7 +16,8 @@ import {
   Plus, ArrowLeft, ArrowRight, Trash2, UserPlus, Pencil,
   MessageSquare, CornerDownLeft, GripVertical,
   Search, X, User, Users, CheckSquare, Download, ExternalLink, Clock,
-  Video, Calendar, Copy, Check, ChevronDown, ChevronUp, Lock
+  Video, Calendar, Copy, Check, ChevronDown, ChevronUp, Lock,
+  Zap, Package, Flag, AlertCircle, ArrowUpRight, Play, CheckCircle2, PauseCircle, Layers
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -72,12 +73,15 @@ interface TaskFormState {
   tags: string[];
   checklist: ChecklistItem[];
   estimatedHours?: number;
+  cycle?: string;
+  module?: string;
 }
 
 const EMPTY_TASK_FORM: TaskFormState = {
   title: '', description: '', priority: 'medium',
   dueDate: '', assignedTo: [], status: 'todo',
   tags: [], checklist: [], estimatedHours: 0,
+  cycle: '', module: '',
 };
 
 // ─── Field label helper ───────────────────────────────────────────────────────
@@ -176,6 +180,54 @@ function TaskCard({ task, myRole, currentUserId, onStatusChange, onEdit, onDelet
         </div>
         <span className={`badge badge-${task.priority}`}>{task.priority}</span>
       </div>
+
+      {/* Agile Sprints & Feature Modules badges */}
+      {(task.cycle || task.module) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+          {task.cycle && (
+            <span
+              style={{
+                fontSize: 10,
+                fontFamily: 'Outfit, sans-serif',
+                fontWeight: 600,
+                padding: '2px 7px',
+                borderRadius: 6,
+                background: 'rgba(234, 179, 8, 0.1)',
+                color: '#facc15',
+                border: '1px solid rgba(234, 179, 8, 0.25)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+              title="Assigned Sprint Cycle"
+            >
+              <span>⚡</span>
+              {typeof task.cycle === 'object' && task.cycle ? task.cycle.name : 'Cycle'}
+            </span>
+          )}
+          {task.module && (
+            <span
+              style={{
+                fontSize: 10,
+                fontFamily: 'Outfit, sans-serif',
+                fontWeight: 600,
+                padding: '2px 7px',
+                borderRadius: 6,
+                background: 'rgba(168, 85, 247, 0.1)',
+                color: '#c084fc',
+                border: '1px solid rgba(168, 85, 247, 0.25)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+              title="Feature Module"
+            >
+              <span>📦</span>
+              {typeof task.module === 'object' && task.module ? task.module.name : 'Module'}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Tags chips */}
       {task.tags && task.tags.length > 0 && (
@@ -638,6 +690,8 @@ interface CommentsPanelProps {
   currentUserId: string;
   myRole: 'admin' | 'member';
   members?: ProjectMember[];
+  cycles?: Cycle[];
+  modules?: Module[];
   onClose: () => void;
   onCommentsUpdate?: (taskId: string, comments: Comment[]) => void;
   onChecklistUpdate?: (taskId: string, checklist: ChecklistItem[]) => void;
@@ -659,6 +713,8 @@ function CommentsPanel({
   currentUserId,
   myRole,
   members = [],
+  cycles = [],
+  modules = [],
   onClose,
   onCommentsUpdate,
   onChecklistUpdate,
@@ -679,9 +735,37 @@ function CommentsPanel({
 
   // Agile & Time Logging State
   const [taskStatus, setTaskStatus] = useState<TaskStatus>(task.status);
+  const [taskCycle, setTaskCycle] = useState<string>(
+    typeof task.cycle === 'object' && task.cycle ? task.cycle._id : (typeof task.cycle === 'string' ? task.cycle : '')
+  );
+  const [taskModule, setTaskModule] = useState<string>(
+    typeof task.module === 'object' && task.module ? task.module._id : (typeof task.module === 'string' ? task.module : '')
+  );
   const [timeLogs, setTimeLogs] = useState(task.timeLogs || []);
   const [loggedMinutes, setLoggedMinutes] = useState(task.loggedMinutes || 0);
   const [estimatedHours, setEstimatedHours] = useState(task.estimatedHours || 0);
+
+  const handleCycleUpdate = async (newCycleId: string) => {
+    setTaskCycle(newCycleId);
+    try {
+      const res = await tasksApi.update(projectId, task._id, { cycle: newCycleId || null });
+      toast('Sprint cycle updated', 'success');
+      if (onTaskUpdate && res.task) onTaskUpdate(res.task);
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to update cycle', 'error');
+    }
+  };
+
+  const handleModuleUpdate = async (newModuleId: string) => {
+    setTaskModule(newModuleId);
+    try {
+      const res = await tasksApi.update(projectId, task._id, { module: newModuleId || null });
+      toast('Feature module updated', 'success');
+      if (onTaskUpdate && res.task) onTaskUpdate(res.task);
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to update module', 'error');
+    }
+  };
 
   // Global Persistent Timer Hook
   const {
@@ -1049,6 +1133,77 @@ function CommentsPanel({
           </span>
         </div>
       </div>
+
+      {/* Agile Sprint & Feature Module Quick Selectors */}
+      {(cycles.length > 0 || modules.length > 0) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, padding: '10px 14px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: 10, border: '1px solid rgba(255, 255, 255, 0.04)', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 200 }}>
+            <Zap size={13} color="#facc15" />
+            <span style={{ fontSize: 11, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)', fontWeight: 500 }}>Sprint:</span>
+            {myRole === 'admin' ? (
+              <select
+                value={taskCycle}
+                onChange={(e) => handleCycleUpdate(e.target.value)}
+                style={{
+                  fontSize: 11,
+                  padding: '3px 8px',
+                  borderRadius: 6,
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  color: taskCycle ? '#facc15' : 'var(--text-muted)',
+                  fontFamily: 'Outfit, sans-serif',
+                  cursor: 'pointer',
+                  flex: 1,
+                }}
+              >
+                <option value="">No Sprint (Backlog)</option>
+                {cycles.map((c) => (
+                  <option key={c._id} value={c._id}>
+                    {c.name} ({c.status === 'current' ? '⚡ Active' : c.status})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span style={{ fontSize: 11, color: taskCycle ? '#facc15' : 'var(--text-muted)', fontFamily: 'Outfit, sans-serif', fontWeight: 500 }}>
+                {cycles.find((c) => c._id === taskCycle)?.name || 'Backlog'}
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 200 }}>
+            <Package size={13} color="#c084fc" />
+            <span style={{ fontSize: 11, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)', fontWeight: 500 }}>Module:</span>
+            {myRole === 'admin' ? (
+              <select
+                value={taskModule}
+                onChange={(e) => handleModuleUpdate(e.target.value)}
+                style={{
+                  fontSize: 11,
+                  padding: '3px 8px',
+                  borderRadius: 6,
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  color: taskModule ? '#c084fc' : 'var(--text-muted)',
+                  fontFamily: 'Outfit, sans-serif',
+                  cursor: 'pointer',
+                  flex: 1,
+                }}
+              >
+                <option value="">No Module</option>
+                {modules.map((m) => (
+                  <option key={m._id} value={m._id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span style={{ fontSize: 11, color: taskModule ? '#c084fc' : 'var(--text-muted)', fontFamily: 'Outfit, sans-serif', fontWeight: 500 }}>
+                {modules.find((m) => m._id === taskModule)?.name || 'None'}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Task description if present */}
       {task.description && (
@@ -1761,8 +1916,40 @@ export default function ProjectDetailPage() {
   const [tasks, setTasks]       = useState<Task[]>([]);
   const [myRole, setMyRole]     = useState<'admin' | 'member'>('member');
   const [loading, setLoading]   = useState(true);
-  const [tab, setTab]           = useState<'board' | 'list' | 'calendar' | 'meetings' | 'members'>('board');
+  const [tab, setTab]           = useState<'board' | 'list' | 'calendar' | 'cycles' | 'modules' | 'meetings' | 'members'>('board');
   const [calendarDate, setCalendarDate] = useState<Date>(() => new Date());
+
+  // Cycles (Sprints) State
+  const [cycles, setCycles]                                   = useState<Cycle[]>([]);
+  const [loadingCycles, setLoadingCycles]                     = useState(false);
+  const [showCycleModal, setShowCycleModal]                   = useState(false);
+  const [editingCycle, setEditingCycle]                       = useState<Cycle | null>(null);
+  const [cycleName, setCycleName]                             = useState('');
+  const [cycleDescription, setCycleDescription]               = useState('');
+  const [cycleStartDate, setCycleStartDate]                   = useState('');
+  const [cycleEndDate, setCycleEndDate]                       = useState('');
+  const [cycleStatus, setCycleStatus]                         = useState<CycleStatus>('upcoming');
+  const [submittingCycle, setSubmittingCycle]                 = useState(false);
+  const [deleteCycleTarget, setDeleteCycleTarget]             = useState<Cycle | null>(null);
+
+  // Rollover Cycle State
+  const [rolloverModalCycle, setRolloverModalCycle]           = useState<Cycle | null>(null);
+  const [rolloverTargetCycleId, setRolloverTargetCycleId]     = useState<string>('');
+  const [submittingRollover, setSubmittingRollover]           = useState(false);
+
+  // Feature Modules State
+  const [modules, setModules]                                 = useState<Module[]>([]);
+  const [loadingModules, setLoadingModules]                   = useState(false);
+  const [showModuleModal, setShowModuleModal]                 = useState(false);
+  const [editingModule, setEditingModule]                     = useState<Module | null>(null);
+  const [moduleName, setModuleName]                           = useState('');
+  const [moduleDescription, setModuleDescription]             = useState('');
+  const [moduleStatus, setModuleStatus]                       = useState<ModuleStatus>('planned');
+  const [moduleStartDate, setModuleStartDate]                 = useState('');
+  const [moduleTargetDate, setModuleTargetDate]               = useState('');
+  const [moduleLead, setModuleLead]                           = useState('');
+  const [submittingModule, setSubmittingModule]               = useState(false);
+  const [deleteModuleTarget, setDeleteModuleTarget]           = useState<Module | null>(null);
 
   // Project Meetings Tab State
   const [projectMeetings, setProjectMeetings]                 = useState<Meeting[]>([]);
@@ -1789,14 +1976,18 @@ export default function ProjectDetailPage() {
   const [searchQuery, setSearchQuery]         = useState('');
   const [filterPriority, setFilterPriority]   = useState('');
   const [filterAssignee, setFilterAssignee]   = useState('');
+  const [filterCycle, setFilterCycle]         = useState('');
+  const [filterModule, setFilterModule]       = useState('');
   const [onlyMyTasks, setOnlyMyTasks]         = useState(false);
 
-  const isFiltering = !!(searchQuery.trim() || filterPriority || filterAssignee || onlyMyTasks);
+  const isFiltering = !!(searchQuery.trim() || filterPriority || filterAssignee || filterCycle || filterModule || onlyMyTasks);
 
   const resetFilters = () => {
     setSearchQuery('');
     setFilterPriority('');
     setFilterAssignee('');
+    setFilterCycle('');
+    setFilterModule('');
     setOnlyMyTasks(false);
   };
 
@@ -1814,15 +2005,19 @@ export default function ProjectDetailPage() {
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [pRes, tRes] = await Promise.all([
+      const [pRes, tRes, cRes, mRes] = await Promise.all([
         projectsApi.get(id),
         tasksApi.list(id, { limit: 1000 }),
+        cyclesApi.list(id).catch(() => ({ success: false, cycles: [] })),
+        modulesApi.list(id).catch(() => ({ success: false, modules: [] })),
       ]);
       setProject(pRes.project);
       if (pRes.project?.tags) setProjectTags(pRes.project.tags);
       setMembers(pRes.members);
       setMyRole(pRes.project.myRole ?? 'member');
       setTasks(tRes.tasks);
+      if (cRes.success && cRes.cycles) setCycles(cRes.cycles);
+      if (mRes.success && mRes.modules) setModules(mRes.modules);
     } catch {
       if (!silent) {
         toast('Failed to load project', 'error');
@@ -1840,14 +2035,18 @@ export default function ProjectDetailPage() {
     Promise.all([
       projectsApi.get(id),
       tasksApi.list(id, { limit: 1000 }),
+      cyclesApi.list(id).catch(() => ({ success: false, cycles: [] })),
+      modulesApi.list(id).catch(() => ({ success: false, modules: [] })),
     ])
-      .then(([pRes, tRes]) => {
+      .then(([pRes, tRes, cRes, mRes]) => {
         if (!active) return;
         setProject(pRes.project);
-      if (pRes.project?.tags) setProjectTags(pRes.project.tags);
+        if (pRes.project?.tags) setProjectTags(pRes.project.tags);
         setMembers(pRes.members);
         setMyRole(pRes.project.myRole ?? 'member');
         setTasks(tRes.tasks);
+        if (cRes.success && cRes.cycles) setCycles(cRes.cycles);
+        if (mRes.success && mRes.modules) setModules(mRes.modules);
       })
       .catch(() => {
         if (!active) return;
@@ -1864,6 +2063,16 @@ export default function ProjectDetailPage() {
         tasksApi.list(id, { limit: 1000 })
           .then((tRes) => {
             if (active) setTasks(tRes.tasks);
+          })
+          .catch(console.error);
+        cyclesApi.list(id)
+          .then((cRes) => {
+            if (active && cRes.cycles) setCycles(cRes.cycles);
+          })
+          .catch(console.error);
+        modulesApi.list(id)
+          .then((mRes) => {
+            if (active && mRes.modules) setModules(mRes.modules);
           })
           .catch(console.error);
       }
@@ -1974,6 +2183,207 @@ export default function ProjectDetailPage() {
     setTimeout(() => setCopiedMeetingId(null), 2000);
   };
 
+  // ── Cycle (Sprint) Actions ──────────────────────────────────────────────────
+  const openCreateCycle = () => {
+    setEditingCycle(null);
+    setCycleName('');
+    setCycleDescription('');
+    const today = new Date();
+    const twoWeeks = new Date(today.getTime() + 14 * 86400000);
+    setCycleStartDate(today.toISOString().slice(0, 10));
+    setCycleEndDate(twoWeeks.toISOString().slice(0, 10));
+    setCycleStatus('upcoming');
+    setShowCycleModal(true);
+  };
+
+  const openEditCycle = (c: Cycle) => {
+    setEditingCycle(c);
+    setCycleName(c.name);
+    setCycleDescription(c.description || '');
+    setCycleStartDate(c.startDate ? c.startDate.slice(0, 10) : '');
+    setCycleEndDate(c.endDate ? c.endDate.slice(0, 10) : '');
+    setCycleStatus(c.status);
+    setShowCycleModal(true);
+  };
+
+  const setCyclePresetDuration = (days: number) => {
+    const start = cycleStartDate ? new Date(cycleStartDate) : new Date();
+    const end = new Date(start.getTime() + days * 86400000);
+    setCycleEndDate(end.toISOString().slice(0, 10));
+  };
+
+  const saveCycle = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!cycleName.trim() || !cycleStartDate || !cycleEndDate) return;
+    try {
+      setSubmittingCycle(true);
+      const payload = {
+        name: cycleName.trim(),
+        description: cycleDescription.trim(),
+        startDate: cycleStartDate,
+        endDate: cycleEndDate,
+        status: cycleStatus,
+      };
+
+      if (editingCycle) {
+        const res = await cyclesApi.update(id, editingCycle._id, payload);
+        if (res.success) {
+          toast('Sprint cycle updated', 'success');
+          setCycles((prev) => prev.map((c) => (c._id === editingCycle._id ? res.cycle : c)));
+          setShowCycleModal(false);
+          await load(true);
+        }
+      } else {
+        const res = await cyclesApi.create(id, payload);
+        if (res.success) {
+          toast('Sprint cycle created', 'success');
+          setCycles((prev) => [res.cycle, ...prev]);
+          setShowCycleModal(false);
+          await load(true);
+        }
+      }
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to save sprint cycle', 'error');
+    } finally {
+      setSubmittingCycle(false);
+    }
+  };
+
+  const handleStartSprintNow = async (cycleId: string) => {
+    try {
+      const res = await cyclesApi.update(id, cycleId, { status: 'current' });
+      if (res.success) {
+        toast('Sprint is now active! ⚡', 'success');
+        await load(true);
+      }
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to start sprint', 'error');
+    }
+  };
+
+  const openCompleteAndRolloverModal = (cycle: Cycle) => {
+    setRolloverModalCycle(cycle);
+    // Find next upcoming cycle if any
+    const upcoming = cycles.find((c) => c._id !== cycle._id && (c.status === 'upcoming' || c.status === 'draft'));
+    setRolloverTargetCycleId(upcoming ? upcoming._id : 'backlog');
+  };
+
+  const handleCompleteSprintWithRollover = async () => {
+    if (!rolloverModalCycle) return;
+    try {
+      setSubmittingRollover(true);
+      const targetId = rolloverTargetCycleId === 'backlog' ? null : rolloverTargetCycleId;
+      const res = await cyclesApi.update(id, rolloverModalCycle._id, {
+        status: 'completed',
+        rolloverToCycleId: targetId,
+      });
+
+      if (res.success) {
+        toast(
+          res.rolloverCount && res.rolloverCount > 0
+            ? `Sprint completed! Rolled over ${res.rolloverCount} unfinished tasks.`
+            : 'Sprint completed! 🎉',
+          'success'
+        );
+        triggerConfetti();
+        setRolloverModalCycle(null);
+        await load(true);
+      }
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to complete sprint', 'error');
+    } finally {
+      setSubmittingRollover(false);
+    }
+  };
+
+  const confirmDeleteCycle = async () => {
+    if (!deleteCycleTarget) return;
+    try {
+      await cyclesApi.delete(id, deleteCycleTarget._id);
+      toast('Sprint cycle deleted', 'success');
+      setCycles((prev) => prev.filter((c) => c._id !== deleteCycleTarget._id));
+      setDeleteCycleTarget(null);
+      await load(true);
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to delete cycle', 'error');
+    }
+  };
+
+  // ── Feature Module Actions ──────────────────────────────────────────────────
+  const openCreateModule = () => {
+    setEditingModule(null);
+    setModuleName('');
+    setModuleDescription('');
+    setModuleStatus('planned');
+    setModuleStartDate('');
+    setModuleTargetDate('');
+    setModuleLead('');
+    setShowModuleModal(true);
+  };
+
+  const openEditModule = (m: Module) => {
+    setEditingModule(m);
+    setModuleName(m.name);
+    setModuleDescription(m.description || '');
+    setModuleStatus(m.status);
+    setModuleStartDate(m.startDate ? m.startDate.slice(0, 10) : '');
+    setModuleTargetDate(m.targetDate ? m.targetDate.slice(0, 10) : '');
+    const leadId = typeof m.lead === 'object' && m.lead ? m.lead._id : (m.lead || '');
+    setModuleLead(leadId);
+    setShowModuleModal(true);
+  };
+
+  const saveModule = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!moduleName.trim()) return;
+    try {
+      setSubmittingModule(true);
+      const payload = {
+        name: moduleName.trim(),
+        description: moduleDescription.trim(),
+        status: moduleStatus,
+        startDate: moduleStartDate || null,
+        targetDate: moduleTargetDate || null,
+        lead: moduleLead || null,
+      };
+
+      if (editingModule) {
+        const res = await modulesApi.update(id, editingModule._id, payload);
+        if (res.success) {
+          toast('Feature module updated', 'success');
+          setModules((prev) => prev.map((m) => (m._id === editingModule._id ? res.module : m)));
+          setShowModuleModal(false);
+          await load(true);
+        }
+      } else {
+        const res = await modulesApi.create(id, payload);
+        if (res.success) {
+          toast('Feature module created', 'success');
+          setModules((prev) => [res.module, ...prev]);
+          setShowModuleModal(false);
+          await load(true);
+        }
+      }
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to save feature module', 'error');
+    } finally {
+      setSubmittingModule(false);
+    }
+  };
+
+  const confirmDeleteModule = async () => {
+    if (!deleteModuleTarget) return;
+    try {
+      await modulesApi.delete(id, deleteModuleTarget._id);
+      toast('Feature module deleted', 'success');
+      setModules((prev) => prev.filter((m) => m._id !== deleteModuleTarget._id));
+      setDeleteModuleTarget(null);
+      await load(true);
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to delete module', 'error');
+    }
+  };
+
   const openCreateTask = useCallback((defaultDueDate?: string | React.MouseEvent) => {
     setEditingTask(null);
     setTaskForm({
@@ -1998,6 +2408,8 @@ export default function ProjectDetailPage() {
       tags:           task.tags ? [...task.tags] : [],
       checklist:      task.checklist ? task.checklist.map((c) => ({ ...c })) : [],
       estimatedHours: task.estimatedHours ?? 0,
+      cycle:          typeof task.cycle === 'object' && task.cycle ? task.cycle._id : (typeof task.cycle === 'string' ? task.cycle : ''),
+      module:         typeof task.module === 'object' && task.module ? task.module._id : (typeof task.module === 'string' ? task.module : ''),
     });
     setNewChecklistTitle('');
     setNewTagInput('');
@@ -2054,6 +2466,22 @@ export default function ProjectDetailPage() {
         if (assignees.length > 0) return false;
       } else if (!assignees.some((u) => u._id === filterAssignee)) {
         return false;
+      }
+    }
+    if (filterCycle) {
+      if (filterCycle === 'unassigned') {
+        if (t.cycle) return false;
+      } else {
+        const cId = typeof t.cycle === 'object' && t.cycle ? t.cycle._id : t.cycle;
+        if (cId !== filterCycle) return false;
+      }
+    }
+    if (filterModule) {
+      if (filterModule === 'unassigned') {
+        if (t.module) return false;
+      } else {
+        const mId = typeof t.module === 'object' && t.module ? t.module._id : t.module;
+        if (mId !== filterModule) return false;
       }
     }
     return true;
@@ -2277,6 +2705,8 @@ export default function ProjectDetailPage() {
       ...taskForm,
       assignedTo: taskForm.assignedTo.length > 0 ? taskForm.assignedTo : undefined,
       dueDate:    taskForm.dueDate    || undefined,
+      cycle:      taskForm.cycle      || null,
+      module:     taskForm.module     || null,
     };
     try {
       if (editingTask) {
@@ -2601,6 +3031,48 @@ export default function ProjectDetailPage() {
             }}
             style={{ colorScheme: 'dark', cursor: 'pointer' }}
           />
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+        {/* Sprint Cycle */}
+        <div>
+          <FieldLabel>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Zap size={13} color="#facc15" /> Sprint Cycle
+            </span>
+          </FieldLabel>
+          <select
+            value={taskForm.cycle || ''}
+            onChange={(e) => setTaskForm({ ...taskForm, cycle: e.target.value })}
+          >
+            <option value="">No Cycle (Backlog)</option>
+            {cycles.map((c) => (
+              <option key={c._id} value={c._id}>
+                {c.name} ({c.status === 'current' ? '⚡ Active' : c.status})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Feature Module */}
+        <div>
+          <FieldLabel>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Package size={13} color="#c084fc" /> Feature Module
+            </span>
+          </FieldLabel>
+          <select
+            value={taskForm.module || ''}
+            onChange={(e) => setTaskForm({ ...taskForm, module: e.target.value })}
+          >
+            <option value="">No Module</option>
+            {modules.map((m) => (
+              <option key={m._id} value={m._id}>
+                {m.name} ({m.status})
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -3214,20 +3686,57 @@ export default function ProjectDetailPage() {
           </div>
 
           {/* ── Tabs ── */}
-          <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 32 }}>
-            {(['board', 'list', 'calendar', 'meetings', 'members'] as const).map((t) => (
-              <button key={t} onClick={() => setTab(t)} style={{
-                background: 'none', border: 'none', cursor: 'pointer', padding: '12px 20px',
-                fontFamily: 'Outfit, sans-serif', fontSize: 14, fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase',
-                color: tab === t ? 'var(--accent-primary)' : 'var(--text-muted)',
-                borderBottom: tab === t ? '2px solid var(--accent-primary)' : '2px solid transparent',
-                marginBottom: -1, transition: 'all 0.2s',
-              }}
-              onMouseEnter={(e) => { if (tab !== t) e.currentTarget.style.color = 'var(--text-primary)' }}
-              onMouseLeave={(e) => { if (tab !== t) e.currentTarget.style.color = 'var(--text-muted)' }}>
-                {t}
-              </button>
-            ))}
+          <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 32, overflowX: 'auto', paddingBottom: 1 }}>
+            {(['board', 'list', 'calendar', 'cycles', 'modules', 'meetings', 'members'] as const).map((t) => {
+              const activeCount = t === 'cycles'
+                ? cycles.filter(c => c.status === 'current').length
+                : t === 'modules'
+                ? modules.filter(m => m.status === 'in_progress').length
+                : null;
+              return (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '12px 18px',
+                    fontFamily: 'Outfit, sans-serif',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    color: tab === t ? 'var(--accent-primary)' : 'var(--text-muted)',
+                    borderBottom: tab === t ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                    marginBottom: -1,
+                    transition: 'all 0.2s',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    whiteSpace: 'nowrap',
+                  }}
+                  onMouseEnter={(e) => { if (tab !== t) e.currentTarget.style.color = 'var(--text-primary)' }}
+                  onMouseLeave={(e) => { if (tab !== t) e.currentTarget.style.color = 'var(--text-muted)' }}
+                >
+                  {t === 'cycles' && <Zap size={13} color={tab === t ? '#facc15' : 'currentColor'} />}
+                  {t === 'modules' && <Package size={13} color={tab === t ? '#c084fc' : 'currentColor'} />}
+                  <span>{t}</span>
+                  {activeCount !== null && activeCount > 0 && (
+                    <span style={{
+                      fontSize: 10,
+                      padding: '1px 6px',
+                      borderRadius: 8,
+                      background: t === 'cycles' ? 'rgba(234, 179, 8, 0.2)' : 'rgba(168, 85, 247, 0.2)',
+                      color: t === 'cycles' ? '#facc15' : '#c084fc',
+                      fontWeight: 600
+                    }}>
+                      {activeCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           {/* ── Search & Filter Bar (shown on Board, List & Calendar tabs) ── */}
@@ -3365,6 +3874,62 @@ export default function ProjectDetailPage() {
                   {members.map((m) => (
                     <option key={m.user._id} value={m.user._id} style={{ background: '#0a0a0f', color: '#fff' }}>
                       {m.user.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {/* Sprint Cycle filter */}
+              {cycles.length > 0 && (
+                <select
+                  value={filterCycle}
+                  onChange={(e) => setFilterCycle(e.target.value)}
+                  style={{
+                    padding: '7px 12px',
+                    fontSize: 12,
+                    fontFamily: 'Outfit, sans-serif',
+                    background: filterCycle ? 'rgba(234, 179, 8, 0.15)' : 'rgba(255,255,255,0.03)',
+                    border: filterCycle ? '1px solid rgba(234, 179, 8, 0.4)' : '1px solid rgba(255,255,255,0.06)',
+                    borderRadius: 10,
+                    color: filterCycle ? '#facc15' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    width: 'auto',
+                  }}
+                >
+                  <option value="" style={{ background: '#0a0a0f', color: '#fff' }}>All Sprints</option>
+                  <option value="unassigned" style={{ background: '#0a0a0f', color: '#fff' }}>No Sprint (Backlog)</option>
+                  {cycles.map((c) => (
+                    <option key={c._id} value={c._id} style={{ background: '#0a0a0f', color: '#fff' }}>
+                      ⚡ {c.name} ({c.status === 'current' ? 'Active' : c.status})
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {/* Feature Module filter */}
+              {modules.length > 0 && (
+                <select
+                  value={filterModule}
+                  onChange={(e) => setFilterModule(e.target.value)}
+                  style={{
+                    padding: '7px 12px',
+                    fontSize: 12,
+                    fontFamily: 'Outfit, sans-serif',
+                    background: filterModule ? 'rgba(168, 85, 247, 0.15)' : 'rgba(255,255,255,0.03)',
+                    border: filterModule ? '1px solid rgba(168, 85, 247, 0.4)' : '1px solid rgba(255,255,255,0.06)',
+                    borderRadius: 10,
+                    color: filterModule ? '#c084fc' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    width: 'auto',
+                  }}
+                >
+                  <option value="" style={{ background: '#0a0a0f', color: '#fff' }}>All Modules</option>
+                  <option value="unassigned" style={{ background: '#0a0a0f', color: '#fff' }}>No Module</option>
+                  {modules.map((m) => (
+                    <option key={m._id} value={m._id} style={{ background: '#0a0a0f', color: '#fff' }}>
+                      📦 {m.name}
                     </option>
                   ))}
                 </select>
@@ -3964,6 +4529,686 @@ export default function ProjectDetailPage() {
             </div>
           )}
 
+          {/* ══ Cycles (Sprints) view ══ */}
+          {tab === 'cycles' && (
+            <div style={{ maxWidth: 1100, ...(project?.hasActiveSubscription === false ? { filter: 'blur(5px)', opacity: 0.35, pointerEvents: 'none', userSelect: 'none' } : {}) }}>
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28, flexWrap: 'wrap', gap: 16 }}>
+                <div>
+                  <h3 style={{ fontFamily: 'Fraunces, serif', fontSize: 22, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Zap size={22} color="#facc15" />
+                    Sprint Cycles
+                  </h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: 13, fontFamily: 'Outfit, sans-serif', marginTop: 4 }}>
+                    Timeboxed sprint iterations to prioritize, track burndown velocity, and ship deliverables on schedule.
+                  </p>
+                </div>
+                {myRole === 'admin' && project?.hasActiveSubscription !== false && (
+                  <button
+                    onClick={openCreateCycle}
+                    className="btn-primary"
+                    style={{ padding: '9px 18px', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, background: 'linear-gradient(135deg, #eab308, #ca8a04)' }}
+                  >
+                    <Plus size={16} /> New Sprint Cycle
+                  </button>
+                )}
+              </div>
+
+              {/* Active Sprint Hero Card */}
+              {(() => {
+                const activeCycle = cycles.find((c) => c.status === 'current');
+                if (!activeCycle) return null;
+                const total = activeCycle.totalTasks || 0;
+                const completed = activeCycle.completedTasks || 0;
+                const inProgress = activeCycle.inProgressTasks || 0;
+                const todo = activeCycle.todoTasks || 0;
+                const pct = activeCycle.progressPct || 0;
+
+                const startDateStr = new Date(activeCycle.startDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                const endDateStr = new Date(activeCycle.endDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                const daysRemaining = Math.ceil((new Date(activeCycle.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+
+                return (
+                  <div
+                    className="glass-panel"
+                    style={{
+                      padding: 24,
+                      marginBottom: 32,
+                      borderRadius: 16,
+                      background: 'radial-gradient(circle at top right, rgba(234, 179, 8, 0.08), rgba(255, 255, 255, 0.015))',
+                      border: '1px solid rgba(234, 179, 8, 0.35)',
+                      boxShadow: '0 12px 36px -12px rgba(234, 179, 8, 0.2)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16, marginBottom: 16 }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                          <span
+                            style={{
+                              fontSize: 10,
+                              fontFamily: 'Outfit, sans-serif',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.08em',
+                              padding: '3px 9px',
+                              borderRadius: 20,
+                              background: 'rgba(234, 179, 8, 0.2)',
+                              color: '#facc15',
+                              border: '1px solid rgba(234, 179, 8, 0.4)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 5,
+                            }}
+                          >
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#facc15', boxShadow: '0 0 8px #facc15' }} />
+                            Current Active Sprint
+                          </span>
+                          <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
+                            {startDateStr} — {endDateStr}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontFamily: 'Outfit, sans-serif',
+                              padding: '2px 8px',
+                              borderRadius: 12,
+                              background: daysRemaining >= 0 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                              color: daysRemaining >= 0 ? '#4ade80' : '#f87171',
+                              border: `1px solid ${daysRemaining >= 0 ? 'rgba(74, 222, 128, 0.25)' : 'rgba(239, 68, 68, 0.25)'}`,
+                              fontWeight: 500,
+                            }}
+                          >
+                            {daysRemaining > 0 ? `${daysRemaining} days remaining` : daysRemaining === 0 ? 'Ends today' : `${Math.abs(daysRemaining)} days overdue`}
+                          </span>
+                        </div>
+                        <h4 style={{ fontFamily: 'Fraunces, serif', fontSize: 22, color: 'var(--text-primary)', margin: '0 0 6px' }}>
+                          {activeCycle.name}
+                        </h4>
+                        {activeCycle.description && (
+                          <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'Outfit, sans-serif', margin: 0, maxWidth: 680, lineHeight: 1.5 }}>
+                            {activeCycle.description}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Active Sprint Actions */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilterCycle(activeCycle._id);
+                            setTab('board');
+                          }}
+                          className="btn-ghost"
+                          style={{ fontSize: 12, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
+                        >
+                          View on Board <ArrowRight size={13} />
+                        </button>
+                        {myRole === 'admin' && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => openEditCycle(activeCycle)}
+                              className="btn-ghost"
+                              style={{ fontSize: 12, padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
+                            >
+                              <Pencil size={13} /> Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openCompleteAndRolloverModal(activeCycle)}
+                              className="btn-primary"
+                              style={{
+                                fontSize: 12,
+                                padding: '7px 14px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                background: 'linear-gradient(135deg, #10b981, #059669)',
+                              }}
+                            >
+                              <CheckCircle2 size={13} /> Complete & Rollover
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Burndown & Progress Section */}
+                    <div style={{ marginTop: 20, paddingTop: 18, borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, fontSize: 12, fontFamily: 'Outfit, sans-serif' }}>
+                        <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>
+                          Sprint Progress: <strong style={{ color: 'var(--text-primary)' }}>{pct}%</strong>
+                        </span>
+                        <span style={{ color: 'var(--text-muted)' }}>
+                          {completed} of {total} tasks completed
+                        </span>
+                      </div>
+
+                      <div style={{ height: 8, background: 'rgba(255, 255, 255, 0.05)', borderRadius: 4, overflow: 'hidden', display: 'flex' }}>
+                        <div style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #4ade80, #10b981)', transition: 'width 0.4s ease' }} title={`Done: ${completed}`} />
+                        <div style={{ width: `${total > 0 ? (inProgress / total) * 100 : 0}%`, background: '#818cf8', transition: 'width 0.4s ease' }} title={`In Progress: ${inProgress}`} />
+                        <div style={{ width: `${total > 0 ? (todo / total) * 100 : 0}%`, background: 'rgba(255,255,255,0.1)', transition: 'width 0.4s ease' }} title={`To Do: ${todo}`} />
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginTop: 12, fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#4ade80' }} />
+                          <strong>{completed}</strong> Completed
+                        </span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#818cf8' }} />
+                          <strong>{inProgress}</strong> In Progress
+                        </span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'rgba(255,255,255,0.3)' }} />
+                          <strong>{todo}</strong> To Do
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Upcoming Cycles Section */}
+              {(() => {
+                const upcoming = cycles.filter((c) => c.status === 'upcoming' || c.status === 'draft');
+                return (
+                  <div style={{ marginBottom: 36 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                      <h4 style={{ fontFamily: 'Fraunces, serif', fontSize: 18, color: 'var(--text-primary)', margin: 0 }}>
+                        Upcoming Sprints ({upcoming.length})
+                      </h4>
+                    </div>
+
+                    {upcoming.length === 0 ? (
+                      <div
+                        className="glass-panel"
+                        style={{
+                          padding: 24,
+                          textAlign: 'center',
+                          borderRadius: 12,
+                          color: 'var(--text-muted)',
+                          fontSize: 13,
+                          fontFamily: 'Outfit, sans-serif',
+                        }}
+                      >
+                        No upcoming sprints planned.{' '}
+                        {myRole === 'admin' && (
+                          <button
+                            type="button"
+                            onClick={openCreateCycle}
+                            style={{ background: 'none', border: 'none', color: '#facc15', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+                          >
+                            Plan next sprint
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
+                        {upcoming.map((c) => {
+                          const start = new Date(c.startDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                          const end = new Date(c.endDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                          return (
+                            <div
+                              key={c._id}
+                              className="glass-panel"
+                              style={{
+                                padding: 20,
+                                borderRadius: 14,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'space-between',
+                                transition: 'all 0.2s',
+                              }}
+                            >
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                  <span
+                                    style={{
+                                      fontSize: 10,
+                                      fontFamily: 'Outfit, sans-serif',
+                                      fontWeight: 600,
+                                      textTransform: 'uppercase',
+                                      padding: '2px 8px',
+                                      borderRadius: 10,
+                                      background: c.status === 'upcoming' ? 'rgba(56, 189, 248, 0.1)' : 'rgba(255, 255, 255, 0.05)',
+                                      color: c.status === 'upcoming' ? '#38bdf8' : 'var(--text-muted)',
+                                      border: `1px solid ${c.status === 'upcoming' ? 'rgba(56, 189, 248, 0.25)' : 'rgba(255, 255, 255, 0.1)'}`,
+                                    }}
+                                  >
+                                    {c.status}
+                                  </span>
+                                  <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
+                                    {c.totalTasks || 0} tasks
+                                  </span>
+                                </div>
+                                <h5 style={{ fontFamily: 'Fraunces, serif', fontSize: 16, color: 'var(--text-primary)', margin: '0 0 6px' }}>
+                                  {c.name}
+                                </h5>
+                                <p style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif', margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                  <Calendar size={12} /> {start} — {end}
+                                </p>
+                                {c.description && (
+                                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'Outfit, sans-serif', margin: '0 0 14px', lineHeight: 1.4 }}>
+                                    {c.description}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, borderTop: '1px solid rgba(255, 255, 255, 0.04)' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setFilterCycle(c._id);
+                                    setTab('board');
+                                  }}
+                                  style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                                >
+                                  View tasks <ArrowRight size={12} />
+                                </button>
+                                {myRole === 'admin' && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStartSprintNow(c._id)}
+                                      title="Start sprint now"
+                                      style={{
+                                        background: 'rgba(234, 179, 8, 0.15)',
+                                        border: '1px solid rgba(234, 179, 8, 0.3)',
+                                        color: '#facc15',
+                                        borderRadius: 6,
+                                        padding: '4px 8px',
+                                        fontSize: 11,
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                      }}
+                                    >
+                                      <Zap size={11} /> Start
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditCycle(c)}
+                                      style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
+                                      title="Edit sprint"
+                                    >
+                                      <Pencil size={13} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setDeleteCycleTarget(c)}
+                                      style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
+                                      title="Delete sprint"
+                                      onMouseEnter={(e) => (e.currentTarget.style.color = '#f87171')}
+                                      onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Completed Sprints Section */}
+              {(() => {
+                const completedCycles = cycles.filter((c) => c.status === 'completed');
+                if (completedCycles.length === 0) return null;
+                return (
+                  <div style={{ marginBottom: 36 }}>
+                    <h4 style={{ fontFamily: 'Fraunces, serif', fontSize: 18, color: 'var(--text-primary)', marginBottom: 16 }}>
+                      Past Completed Sprints ({completedCycles.length})
+                    </h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {completedCycles.map((c) => {
+                        const start = new Date(c.startDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                        const end = new Date(c.endDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                        const pct = c.progressPct || 0;
+                        return (
+                          <div
+                            key={c._id}
+                            className="glass-panel"
+                            style={{
+                              padding: '14px 20px',
+                              borderRadius: 12,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 16,
+                              flexWrap: 'wrap',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                              <CheckCircle2 size={18} color="#4ade80" />
+                              <div>
+                                <span style={{ fontFamily: 'Outfit, sans-serif', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                                  {c.name}
+                                </span>
+                                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif', marginTop: 2 }}>
+                                  {start} — {end} • {c.completedTasks || 0} of {c.totalTasks || 0} tasks done ({pct}%)
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                              <div style={{ width: 100, height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                                <div style={{ width: `${pct}%`, height: '100%', background: '#4ade80' }} />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFilterCycle(c._id);
+                                  setTab('board');
+                                }}
+                                className="btn-ghost"
+                                style={{ fontSize: 12, padding: '5px 10px' }}
+                              >
+                                View tasks
+                              </button>
+                              {myRole === 'admin' && (
+                                <button
+                                  type="button"
+                                  onClick={() => setDeleteCycleTarget(c)}
+                                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
+                                  title="Delete cycle"
+                                  onMouseEnter={(e) => (e.currentTarget.style.color = '#f87171')}
+                                  onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* No cycles at all empty state */}
+              {cycles.length === 0 && (
+                <div
+                  className="glass-panel"
+                  style={{
+                    padding: 48,
+                    textAlign: 'center',
+                    borderRadius: 16,
+                    maxWidth: 500,
+                    margin: '32px auto',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 56,
+                      height: 56,
+                      borderRadius: '50%',
+                      background: 'rgba(234, 179, 8, 0.1)',
+                      border: '1px solid rgba(234, 179, 8, 0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      margin: '0 auto 16px',
+                    }}
+                  >
+                    <Zap size={26} color="#facc15" />
+                  </div>
+                  <h4 style={{ fontFamily: 'Fraunces, serif', fontSize: 20, color: 'var(--text-primary)', margin: '0 0 8px' }}>
+                    No Sprint Cycles Yet
+                  </h4>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'Outfit, sans-serif', lineHeight: 1.5, margin: '0 0 20px' }}>
+                    Organize your team work into timeboxed sprint cycles (1 week, 2 weeks, or custom) to track deliverables, calculate team velocity, and prevent sprint creep.
+                  </p>
+                  {myRole === 'admin' && project?.hasActiveSubscription !== false && (
+                    <button
+                      type="button"
+                      onClick={openCreateCycle}
+                      className="btn-primary"
+                      style={{ padding: '10px 20px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg, #eab308, #ca8a04)' }}
+                    >
+                      <Plus size={15} /> Create First Sprint Cycle
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ══ Feature Modules View ══ */}
+          {tab === 'modules' && (
+            <div style={{ maxWidth: 1100, ...(project?.hasActiveSubscription === false ? { filter: 'blur(5px)', opacity: 0.35, pointerEvents: 'none', userSelect: 'none' } : {}) }}>
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28, flexWrap: 'wrap', gap: 16 }}>
+                <div>
+                  <h3 style={{ fontFamily: 'Fraunces, serif', fontSize: 22, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Package size={22} color="#c084fc" />
+                    Feature Modules & Epics
+                  </h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: 13, fontFamily: 'Outfit, sans-serif', marginTop: 4 }}>
+                    Group related tasks into functional milestones, designate module leads, and track cross-sprint feature progress.
+                  </p>
+                </div>
+                {myRole === 'admin' && project?.hasActiveSubscription !== false && (
+                  <button
+                    onClick={openCreateModule}
+                    className="btn-primary"
+                    style={{ padding: '9px 18px', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, background: 'linear-gradient(135deg, #a855f7, #7c3aed)' }}
+                  >
+                    <Plus size={16} /> New Feature Module
+                  </button>
+                )}
+              </div>
+
+              {/* Modules Grid */}
+              {modules.length > 0 ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
+                  {modules.map((m) => {
+                    const total = m.totalTasks || 0;
+                    const completed = m.completedTasks || 0;
+                    const pct = m.progressPct || 0;
+                    const leadObj = typeof m.lead === 'object' && m.lead ? m.lead : null;
+
+                    const statusColors: Record<ModuleStatus, { bg: string; text: string; border: string }> = {
+                      planned: { bg: 'rgba(148, 163, 184, 0.1)', text: '#94a3b8', border: 'rgba(148, 163, 184, 0.25)' },
+                      in_progress: { bg: 'rgba(129, 140, 248, 0.1)', text: '#a5b4fc', border: 'rgba(129, 140, 248, 0.25)' },
+                      paused: { bg: 'rgba(251, 191, 36, 0.1)', text: '#fbbf24', border: 'rgba(251, 191, 36, 0.25)' },
+                      completed: { bg: 'rgba(74, 222, 128, 0.1)', text: '#4ade80', border: 'rgba(74, 222, 128, 0.25)' },
+                      canceled: { bg: 'rgba(239, 68, 68, 0.1)', text: '#f87171', border: 'rgba(239, 68, 68, 0.25)' },
+                    };
+                    const sc = statusColors[m.status] || statusColors.planned;
+
+                    return (
+                      <div
+                        key={m._id}
+                        className="glass-panel"
+                        style={{
+                          padding: 22,
+                          borderRadius: 16,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                          border: '1px solid rgba(255, 255, 255, 0.06)',
+                          transition: 'all 0.2s',
+                        }}
+                      >
+                        <div>
+                          {/* Top Badges */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontFamily: 'Outfit, sans-serif',
+                                fontWeight: 600,
+                                textTransform: 'uppercase',
+                                padding: '3px 9px',
+                                borderRadius: 12,
+                                background: sc.bg,
+                                color: sc.text,
+                                border: `1px solid ${sc.border}`,
+                                letterSpacing: '0.04em',
+                              }}
+                            >
+                              {m.status.replace('_', ' ')}
+                            </span>
+                            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
+                              {total} {total === 1 ? 'task' : 'tasks'}
+                            </span>
+                          </div>
+
+                          {/* Title & Description */}
+                          <h4 style={{ fontFamily: 'Fraunces, serif', fontSize: 18, color: 'var(--text-primary)', margin: '0 0 6px' }}>
+                            {m.name}
+                          </h4>
+                          {m.description && (
+                            <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'Outfit, sans-serif', margin: '0 0 14px', lineHeight: 1.5 }}>
+                              {m.description}
+                            </p>
+                          )}
+
+                          {/* Lead Assignee */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                            <span style={{ fontSize: 11, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Lead:</span>
+                            {leadObj ? (
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                {leadObj.avatar ? (
+                                  <img src={leadObj.avatar} alt={leadObj.name} style={{ width: 18, height: 18, borderRadius: '50%', objectFit: 'cover' }} />
+                                ) : (
+                                  <span style={{ width: 18, height: 18, borderRadius: '50%', background: 'var(--accent-primary)', color: '#fff', fontSize: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600 }}>
+                                    {leadObj.name?.[0]?.toUpperCase() || 'U'}
+                                  </span>
+                                )}
+                                <span style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-primary)', fontWeight: 500 }}>
+                                  {leadObj.name}
+                                </span>
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                None assigned
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Timeline Dates */}
+                          {m.targetDate && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontFamily: 'Outfit, sans-serif', color: 'var(--text-muted)', marginBottom: 16 }}>
+                              <Flag size={12} color="#c084fc" />
+                              <span>Target: {new Date(m.targetDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Progress bar & Card Actions */}
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, fontSize: 11, fontFamily: 'Outfit, sans-serif' }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>{completed} of {total} done</span>
+                            <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{pct}%</span>
+                          </div>
+                          <div style={{ height: 6, background: 'rgba(255, 255, 255, 0.05)', borderRadius: 3, overflow: 'hidden', marginBottom: 14 }}>
+                            <div
+                              style={{
+                                width: `${pct}%`,
+                                height: '100%',
+                                background: pct === 100 ? '#4ade80' : 'linear-gradient(90deg, #c084fc, #a855f7)',
+                                transition: 'width 0.3s ease',
+                              }}
+                            />
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, borderTop: '1px solid rgba(255, 255, 255, 0.04)' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFilterModule(m._id);
+                                setTab('board');
+                              }}
+                              style={{ background: 'none', border: 'none', color: '#c084fc', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0 }}
+                            >
+                              View tasks <ArrowRight size={12} />
+                            </button>
+                            {myRole === 'admin' && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => openEditModule(m)}
+                                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
+                                  title="Edit module"
+                                >
+                                  <Pencil size={13} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeleteModuleTarget(m)}
+                                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
+                                  title="Delete module"
+                                  onMouseEnter={(e) => (e.currentTarget.style.color = '#f87171')}
+                                  onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div
+                  className="glass-panel"
+                  style={{
+                    padding: 48,
+                    textAlign: 'center',
+                    borderRadius: 16,
+                    maxWidth: 500,
+                    margin: '32px auto',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 56,
+                      height: 56,
+                      borderRadius: '50%',
+                      background: 'rgba(168, 85, 247, 0.1)',
+                      border: '1px solid rgba(168, 85, 247, 0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      margin: '0 auto 16px',
+                    }}
+                  >
+                    <Package size={26} color="#c084fc" />
+                  </div>
+                  <h4 style={{ fontFamily: 'Fraunces, serif', fontSize: 20, color: 'var(--text-primary)', margin: '0 0 8px' }}>
+                    No Feature Modules Yet
+                  </h4>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'Outfit, sans-serif', lineHeight: 1.5, margin: '0 0 20px' }}>
+                    Break down your project into high-level feature modules (like 'User Auth', 'Payments', 'Analytics') to group tasks and track major milestone deliverables.
+                  </p>
+                  {myRole === 'admin' && project?.hasActiveSubscription !== false && (
+                    <button
+                      type="button"
+                      onClick={openCreateModule}
+                      className="btn-primary"
+                      style={{ padding: '10px 20px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg, #a855f7, #7c3aed)' }}
+                    >
+                      <Plus size={15} /> Create First Feature Module
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ══ Members view ══ */}
           {tab === 'members' && (
             <div style={{ maxWidth: 800 }}>
@@ -4266,6 +5511,8 @@ export default function ProjectDetailPage() {
           currentUserId={user?._id || ''}
           myRole={myRole}
           members={members}
+          cycles={cycles}
+          modules={modules}
           onClose={() => setCommentTask(null)}
           onCommentsUpdate={(taskId, newComments) => {
             setTasks((prev) =>
@@ -4471,6 +5718,353 @@ export default function ProjectDetailPage() {
               </button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {/* ══ Create / Edit Sprint Cycle Modal ══ */}
+      {showCycleModal && (
+        <Modal
+          title={editingCycle ? `Edit Sprint — ${editingCycle.name}` : 'New Sprint Cycle'}
+          onClose={() => setShowCycleModal(false)}
+          width={500}
+        >
+          <form onSubmit={saveCycle}>
+            <div style={{ marginBottom: 18 }}>
+              <FieldLabel>Sprint Name *</FieldLabel>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Sprint 1 - Core Deliverables"
+                value={cycleName}
+                onChange={(e) => setCycleName(e.target.value)}
+              />
+            </div>
+
+            <div style={{ marginBottom: 18 }}>
+              <FieldLabel>Description</FieldLabel>
+              <textarea
+                placeholder="Key sprint deliverables, milestones, and velocity goals…"
+                rows={3}
+                value={cycleDescription}
+                onChange={(e) => setCycleDescription(e.target.value)}
+                style={{ resize: 'none' }}
+              />
+            </div>
+
+            {/* Quick Presets */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <FieldLabel>Duration Presets</FieldLabel>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => setCyclePresetDuration(7)}
+                    style={{
+                      background: 'rgba(234, 179, 8, 0.1)',
+                      border: '1px solid rgba(234, 179, 8, 0.25)',
+                      color: '#facc15',
+                      padding: '3px 8px',
+                      borderRadius: 6,
+                      fontSize: 11,
+                      fontFamily: 'Outfit, sans-serif',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    1 Week
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCyclePresetDuration(14)}
+                    style={{
+                      background: 'rgba(234, 179, 8, 0.1)',
+                      border: '1px solid rgba(234, 179, 8, 0.25)',
+                      color: '#facc15',
+                      padding: '3px 8px',
+                      borderRadius: 6,
+                      fontSize: 11,
+                      fontFamily: 'Outfit, sans-serif',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    2 Weeks
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCyclePresetDuration(30)}
+                    style={{
+                      background: 'rgba(234, 179, 8, 0.1)',
+                      border: '1px solid rgba(234, 179, 8, 0.25)',
+                      color: '#facc15',
+                      padding: '3px 8px',
+                      borderRadius: 6,
+                      fontSize: 11,
+                      fontFamily: 'Outfit, sans-serif',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    1 Month
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div>
+                  <FieldLabel>Start Date *</FieldLabel>
+                  <input
+                    type="date"
+                    required
+                    value={cycleStartDate}
+                    onChange={(e) => setCycleStartDate(e.target.value)}
+                    style={{ colorScheme: 'dark', cursor: 'pointer' }}
+                  />
+                </div>
+                <div>
+                  <FieldLabel>End Date *</FieldLabel>
+                  <input
+                    type="date"
+                    required
+                    value={cycleEndDate}
+                    onChange={(e) => setCycleEndDate(e.target.value)}
+                    style={{ colorScheme: 'dark', cursor: 'pointer' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 24 }}>
+              <FieldLabel>Sprint Status</FieldLabel>
+              <select
+                value={cycleStatus}
+                onChange={(e) => setCycleStatus(e.target.value as CycleStatus)}
+              >
+                <option value="upcoming">Upcoming (Planned)</option>
+                <option value="current">Current (Active Now)</option>
+                <option value="draft">Draft</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setShowCycleModal(false)}
+                style={{ padding: '10px 20px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={submittingCycle}
+                style={{ padding: '10px 24px', background: 'linear-gradient(135deg, #eab308, #ca8a04)' }}
+              >
+                {submittingCycle ? 'Saving…' : editingCycle ? 'Update Sprint' : 'Create Sprint'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ══ Complete Sprint & Rollover Modal ══ */}
+      {rolloverModalCycle && (
+        <Modal
+          title={`Complete Sprint — ${rolloverModalCycle.name}`}
+          onClose={() => setRolloverModalCycle(null)}
+          width={480}
+        >
+          <div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 16px',
+                background: 'rgba(234, 179, 8, 0.08)',
+                border: '1px solid rgba(234, 179, 8, 0.25)',
+                borderRadius: 12,
+                marginBottom: 20,
+              }}
+            >
+              <AlertCircle size={20} color="#facc15" style={{ flexShrink: 0 }} />
+              <div style={{ fontSize: 13, fontFamily: 'Outfit, sans-serif', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                Marking this sprint as <strong>Completed</strong> will calculate its final burndown velocity.
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <FieldLabel>Where to rollover incomplete tasks?</FieldLabel>
+              <select
+                value={rolloverTargetCycleId}
+                onChange={(e) => setRolloverTargetCycleId(e.target.value)}
+                style={{ width: '100%' }}
+              >
+                <option value="backlog">Move back to Product Backlog (No sprint)</option>
+                {cycles
+                  .filter((c) => c._id !== rolloverModalCycle._id && c.status !== 'completed')
+                  .map((c) => (
+                    <option key={c._id} value={c._id}>
+                      ⚡ Rollover into "{c.name}" ({c.status})
+                    </option>
+                  ))}
+              </select>
+            </div>
+
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif', marginBottom: 24, lineHeight: 1.4 }}>
+              Tasks that are already marked as <strong>Done</strong> will stay in this sprint for historical reporting. Only incomplete tasks will be moved.
+            </p>
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setRolloverModalCycle(null)}
+                style={{ padding: '10px 20px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCompleteSprintWithRollover}
+                disabled={submittingRollover}
+                className="btn-primary"
+                style={{ padding: '10px 24px', background: 'linear-gradient(135deg, #10b981, #059669)' }}
+              >
+                {submittingRollover ? 'Completing…' : 'Complete & Rollover Tasks'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ══ Delete Cycle Target Modal ══ */}
+      {deleteCycleTarget && (
+        <Modal title="Delete Sprint Cycle" onClose={() => setDeleteCycleTarget(null)} width={420}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 14, fontFamily: 'Outfit, sans-serif', marginBottom: 28, lineHeight: 1.6 }}>
+            Are you sure you want to delete <strong style={{ color: 'var(--text-primary)' }}>{deleteCycleTarget.name}</strong>? Tasks assigned to this sprint will be returned to the backlog.
+          </p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+            <button className="btn-ghost" onClick={() => setDeleteCycleTarget(null)} style={{ padding: '10px 20px' }}>Cancel</button>
+            <button className="btn-primary" style={{ background: '#ef4444', padding: '10px 24px' }} onClick={confirmDeleteCycle}>Delete Sprint</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ══ Create / Edit Feature Module Modal ══ */}
+      {showModuleModal && (
+        <Modal
+          title={editingModule ? `Edit Feature Module — ${editingModule.name}` : 'New Feature Module'}
+          onClose={() => setShowModuleModal(false)}
+          width={520}
+        >
+          <form onSubmit={saveModule}>
+            <div style={{ marginBottom: 18 }}>
+              <FieldLabel>Module / Milestone Name *</FieldLabel>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Payment Gateway & Invoicing"
+                value={moduleName}
+                onChange={(e) => setModuleName(e.target.value)}
+              />
+            </div>
+
+            <div style={{ marginBottom: 18 }}>
+              <FieldLabel>Description</FieldLabel>
+              <textarea
+                placeholder="Goals, deliverables, and technical scope of this module…"
+                rows={3}
+                value={moduleDescription}
+                onChange={(e) => setModuleDescription(e.target.value)}
+                style={{ resize: 'none' }}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 18 }}>
+              <div>
+                <FieldLabel>Status</FieldLabel>
+                <select
+                  value={moduleStatus}
+                  onChange={(e) => setModuleStatus(e.target.value as ModuleStatus)}
+                >
+                  <option value="planned">Planned</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="paused">Paused</option>
+                  <option value="completed">Completed</option>
+                  <option value="canceled">Canceled</option>
+                </select>
+              </div>
+
+              <div>
+                <FieldLabel>Module Lead</FieldLabel>
+                <select
+                  value={moduleLead}
+                  onChange={(e) => setModuleLead(e.target.value)}
+                >
+                  <option value="">No lead assigned</option>
+                  {members.map((m) => (
+                    <option key={m.user._id} value={m.user._id}>
+                      {m.user.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 24 }}>
+              <div>
+                <FieldLabel>Start Date</FieldLabel>
+                <input
+                  type="date"
+                  value={moduleStartDate}
+                  onChange={(e) => setModuleStartDate(e.target.value)}
+                  style={{ colorScheme: 'dark', cursor: 'pointer' }}
+                />
+              </div>
+
+              <div>
+                <FieldLabel>Target / Deadline Date</FieldLabel>
+                <input
+                  type="date"
+                  value={moduleTargetDate}
+                  onChange={(e) => setModuleTargetDate(e.target.value)}
+                  style={{ colorScheme: 'dark', cursor: 'pointer' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setShowModuleModal(false)}
+                style={{ padding: '10px 20px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={submittingModule}
+                style={{ padding: '10px 24px', background: 'linear-gradient(135deg, #a855f7, #7c3aed)' }}
+              >
+                {submittingModule ? 'Saving…' : editingModule ? 'Update Module' : 'Create Module'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ══ Delete Module Target Modal ══ */}
+      {deleteModuleTarget && (
+        <Modal title="Delete Feature Module" onClose={() => setDeleteModuleTarget(null)} width={420}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 14, fontFamily: 'Outfit, sans-serif', marginBottom: 28, lineHeight: 1.6 }}>
+            Are you sure you want to delete <strong style={{ color: 'var(--text-primary)' }}>{deleteModuleTarget.name}</strong>? Tasks assigned to this module will remain intact but will be detached from this module.
+          </p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+            <button className="btn-ghost" onClick={() => setDeleteModuleTarget(null)} style={{ padding: '10px 20px' }}>Cancel</button>
+            <button className="btn-primary" style={{ background: '#ef4444', padding: '10px 24px' }} onClick={confirmDeleteModule}>Delete Module</button>
+          </div>
         </Modal>
       )}
     </div>

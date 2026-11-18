@@ -82,6 +82,45 @@ export interface Comment {
   editedAt?: string;
 }
 
+export type CycleStatus = 'draft' | 'upcoming' | 'current' | 'completed';
+
+export interface Cycle {
+  _id: string;
+  name: string;
+  description?: string;
+  project: string;
+  startDate: string;
+  endDate: string;
+  status: CycleStatus;
+  createdBy?: User | string;
+  createdAt: string;
+  updatedAt: string;
+  totalTasks?: number;
+  completedTasks?: number;
+  inProgressTasks?: number;
+  todoTasks?: number;
+  progressPct?: number;
+}
+
+export type ModuleStatus = 'planned' | 'in_progress' | 'paused' | 'completed' | 'canceled';
+
+export interface Module {
+  _id: string;
+  name: string;
+  description?: string;
+  project: string;
+  status: ModuleStatus;
+  startDate?: string | null;
+  targetDate?: string | null;
+  lead?: User | null;
+  createdBy?: User | string;
+  createdAt: string;
+  updatedAt: string;
+  totalTasks?: number;
+  completedTasks?: number;
+  progressPct?: number;
+}
+
 export interface Task {
   _id: string;
   title: string;
@@ -100,6 +139,8 @@ export interface Task {
   estimatedHours?: number;
   loggedMinutes?: number;
   timeLogs?: TimeLog[];
+  cycle?: Cycle | string | null;
+  module?: Module | string | null;
   createdAt: string;
   updatedAt: string;
   // Joined on client
@@ -240,6 +281,8 @@ export interface CreateTaskPayload {
   tags?: string[];
   checklist?: ChecklistItem[];
   estimatedHours?: number;
+  cycle?: string | null;
+  module?: string | null;
 }
 
 export interface TaskListResponse { success: boolean; tasks: Task[]; pagination: { total: number; page: number; limit: number; pages: number } }
@@ -249,6 +292,8 @@ export interface TaskFilterParams {
   status?: TaskStatus;
   priority?: TaskPriority;
   assignedTo?: string | string[];
+  cycle?: string;
+  module?: string;
   page?: number;
   limit?: number;
 }
@@ -264,12 +309,51 @@ export const tasksApi = {
   },
   create:        (pid: string, d: CreateTaskPayload)                => post<TaskResponse>(`/projects/${pid}/tasks`, d),
   get:           (pid: string, tid: string)                         => get<TaskResponse>(`/projects/${pid}/tasks/${tid}`),
-  update:        (pid: string, tid: string, d: Partial<CreateTaskPayload & { status: TaskStatus; checklist: ChecklistItem[]; estimatedHours?: number }>) => patch<TaskResponse>(`/projects/${pid}/tasks/${tid}`, d),
+  update:        (pid: string, tid: string, d: Partial<CreateTaskPayload & { status: TaskStatus; checklist: ChecklistItem[]; estimatedHours?: number; cycle?: string | null; module?: string | null }>) => patch<TaskResponse>(`/projects/${pid}/tasks/${tid}`, d),
   delete:        (pid: string, tid: string)                         => del<{ success: boolean; message: string }>(`/projects/${pid}/tasks/${tid}`),
   logTime:       (pid: string, tid: string, d: { minutes: number; description?: string }) => post<TaskResponse>(`/projects/${pid}/tasks/${tid}/time-logs`, d),
   addComment:    (pid: string, tid: string, d: { text: string })    => post<{ success: boolean; comment: Comment }>(`/projects/${pid}/tasks/${tid}/comments`, d),
   updateComment: (pid: string, tid: string, cid: string, d: { text: string }) => patch<{ success: boolean; comment: Comment }>(`/projects/${pid}/tasks/${tid}/comments/${cid}`, d),
   deleteComment: (pid: string, tid: string, cid: string)            => del<{ success: boolean; message: string }>(`/projects/${pid}/tasks/${tid}/comments/${cid}`),
+};
+
+// ─── Cycles & Modules ─────────────────────────────────────────────────────────
+
+export interface CreateCyclePayload {
+  name: string;
+  description?: string;
+  startDate: string;
+  endDate: string;
+  status?: CycleStatus;
+}
+
+export interface CreateModulePayload {
+  name: string;
+  description?: string;
+  status?: ModuleStatus;
+  startDate?: string | null;
+  targetDate?: string | null;
+  lead?: string | null;
+}
+
+export const cyclesApi = {
+  list: (pid: string) => get<{ success: boolean; cycles: Cycle[] }>(`/projects/${pid}/cycles`),
+  get: (pid: string, cid: string) => get<{ success: boolean; cycle: Cycle; tasks: Task[] }>(`/projects/${pid}/cycles/${cid}`),
+  create: (pid: string, d: CreateCyclePayload) => post<{ success: boolean; cycle: Cycle }>(`/projects/${pid}/cycles`, d),
+  update: (pid: string, cid: string, d: Partial<CreateCyclePayload> & { rolloverToCycleId?: string | null }) =>
+    patch<{ success: boolean; cycle: Cycle; rolloverCount?: number }>(`/projects/${pid}/cycles/${cid}`, d),
+  delete: (pid: string, cid: string) => del<{ success: boolean; message: string }>(`/projects/${pid}/cycles/${cid}`),
+  rollover: (pid: string, cid: string, targetCycleId?: string | null) =>
+    post<{ success: boolean; message: string; rolledOverCount: number }>(`/projects/${pid}/cycles/${cid}/rollover`, { targetCycleId }),
+};
+
+export const modulesApi = {
+  list: (pid: string) => get<{ success: boolean; modules: Module[] }>(`/projects/${pid}/modules`),
+  get: (pid: string, mid: string) => get<{ success: boolean; module: Module; tasks: Task[] }>(`/projects/${pid}/modules/${mid}`),
+  create: (pid: string, d: CreateModulePayload) => post<{ success: boolean; module: Module }>(`/projects/${pid}/modules`, d),
+  update: (pid: string, mid: string, d: Partial<CreateModulePayload>) =>
+    patch<{ success: boolean; module: Module }>(`/projects/${pid}/modules/${mid}`, d),
+  delete: (pid: string, mid: string) => del<{ success: boolean; message: string }>(`/projects/${pid}/modules/${mid}`),
 };
 
 export interface AttendanceLog {

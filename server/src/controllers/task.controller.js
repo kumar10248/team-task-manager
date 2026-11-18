@@ -70,6 +70,8 @@ exports.getMyTasks = async (req, res) => {
         .populate('createdBy', 'name email avatar')
         .populate('assignedTo', 'name email avatar')
         .populate('comments.user', 'name email avatar')
+        .populate('cycle', 'name status startDate endDate')
+        .populate('module', 'name status targetDate lead')
         .sort({ dueDate: 1, createdAt: -1 })
         .lean(),
       getProjectsSubscriptionMap(projectIds),
@@ -121,7 +123,7 @@ exports.createTask = async (req, res) => {
       });
     }
 
-    const { title, description, assignedTo, status, priority, dueDate, tags, checklist, estimatedHours } = req.body;
+    const { title, description, assignedTo, status, priority, dueDate, tags, checklist, estimatedHours, cycle, module } = req.body;
 
     // Validate required fields
     if (!title || !title.trim()) {
@@ -158,11 +160,15 @@ exports.createTask = async (req, res) => {
       tags: Array.isArray(tags) ? tags : [],
       checklist: Array.isArray(checklist) ? checklist : [],
       estimatedHours: Number(estimatedHours) > 0 ? Number(estimatedHours) : 0,
+      cycle: cycle || null,
+      module: module || null,
     });
 
     const populated = await Task.findById(task._id)
       .populate('assignedTo', 'name email avatar')
-      .populate('createdBy', 'name email avatar');
+      .populate('createdBy', 'name email avatar')
+      .populate('cycle', 'name status startDate endDate')
+      .populate('module', 'name status targetDate lead');
 
     // Send notification to each assigned user (except creator)
     for (const assigneeId of assignees) {
@@ -203,7 +209,7 @@ exports.getTasks = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
-    const { status, priority, assignedTo, page = 1, limit = 20 } = req.query;
+    const { status, priority, assignedTo, cycle, module, page = 1, limit = 20 } = req.query;
     const filter = { project: projectId };
 
     // Support optional filter by assignee
@@ -213,6 +219,14 @@ exports.getTasks = async (req, res) => {
       } else {
         filter.assignedTo = assignedTo;
       }
+    }
+
+    if (cycle) {
+      filter.cycle = cycle === 'unassigned' ? null : cycle;
+    }
+
+    if (module) {
+      filter.module = module === 'unassigned' ? null : module;
     }
 
     if (status) filter.status = status;
@@ -225,6 +239,8 @@ exports.getTasks = async (req, res) => {
         .populate('createdBy', 'name email avatar')
         .populate('comments.user', 'name email avatar')
         .populate('timeLogs.user', 'name email avatar')
+        .populate('cycle', 'name status startDate endDate')
+        .populate('module', 'name status targetDate lead')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit))
@@ -287,6 +303,8 @@ exports.getTask = async (req, res) => {
       .populate('createdBy', 'name email avatar')
       .populate('comments.user', 'name email avatar')
       .populate('timeLogs.user', 'name email avatar')
+      .populate('cycle', 'name status startDate endDate')
+      .populate('module', 'name status targetDate lead')
       .lean();
 
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
@@ -352,7 +370,7 @@ exports.updateTask = async (req, res) => {
       }
     }
 
-    const adminFields = ['title', 'description', 'assignedTo', 'priority', 'dueDate', 'tags', 'checklist', 'estimatedHours'];
+    const adminFields = ['title', 'description', 'assignedTo', 'priority', 'dueDate', 'tags', 'checklist', 'estimatedHours', 'cycle', 'module'];
     const memberFields = ['status', 'checklist'];
     const allowedFields = membership.role === 'admin' ? [...adminFields, 'status'] : memberFields;
 
@@ -363,6 +381,13 @@ exports.updateTask = async (req, res) => {
     allowedFields.forEach((field) => {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
     });
+
+    if (updates.cycle === '' || updates.cycle === 'null' || updates.cycle === 'unassigned') {
+      updates.cycle = null;
+    }
+    if (updates.module === '' || updates.module === 'null' || updates.module === 'unassigned') {
+      updates.module = null;
+    }
 
     // Validate new assignees are project members
     if (updates.assignedTo !== undefined) {
@@ -492,7 +517,9 @@ exports.updateTask = async (req, res) => {
       .populate('assignedTo', 'name email avatar')
       .populate('createdBy', 'name email avatar')
       .populate('comments.user', 'name email avatar')
-      .populate('timeLogs.user', 'name email avatar');
+      .populate('timeLogs.user', 'name email avatar')
+      .populate('cycle', 'name status startDate endDate')
+      .populate('module', 'name status targetDate lead');
 
     res.json({ success: true, task: populated });
   } catch (err) {
@@ -733,7 +760,9 @@ exports.logTime = async (req, res) => {
       .populate('assignedTo', 'name email avatar')
       .populate('createdBy', 'name email avatar')
       .populate('comments.user', 'name email avatar')
-      .populate('timeLogs.user', 'name email avatar');
+      .populate('timeLogs.user', 'name email avatar')
+      .populate('cycle', 'name status startDate endDate')
+      .populate('module', 'name status targetDate lead');
 
     res.status(201).json({ success: true, task: populated });
   } catch (err) {

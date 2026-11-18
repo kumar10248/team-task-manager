@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const project = require('../controllers/project.controller');
 const task = require('../controllers/task.controller');
+const cycle = require('../controllers/cycle.controller');
+const moduleController = require('../controllers/module.controller');
 const { protect } = require('../middleware/auth.middleware');
 
 // All project routes require authentication
@@ -62,5 +64,27 @@ router.route('/:projectId/tasks/:taskId/comments')
 router.route('/:projectId/tasks/:taskId/comments/:commentId')
   .patch(task.updateComment)
   .delete(task.deleteComment);
+
+// ── Cycles (Sprints) ────────────────────────────────────────────────────────
+router.route('/:projectId/cycles')
+  .get(cycle.getCycles)
+  .post(cycle.createCycle);
+
+router.route('/:projectId/cycles/:cycleId')
+  .get(cycle.getCycle)
+  .patch(cycle.updateCycle)
+  .delete(cycle.deleteCycle);
+
+router.post('/:projectId/cycles/:cycleId/rollover', cycle.rolloverCycle);
+
+// ── Feature Modules ────────────────────────────────────────────────────────
+router.route('/:projectId/modules')
+  .get(moduleController.getModules)
+  .post(moduleController.createModule);
+
+router.route('/:projectId/modules/:moduleId')
+  .get(moduleController.getModule)
+  .patch(moduleController.updateModule)
+  .delete(moduleController.deleteModule);
 
 module.exports = router;
