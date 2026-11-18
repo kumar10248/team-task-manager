@@ -4,6 +4,8 @@ const project = require('../controllers/project.controller');
 const task = require('../controllers/task.controller');
 const cycle = require('../controllers/cycle.controller');
 const moduleController = require('../controllers/module.controller');
+const docController = require('../controllers/doc.controller');
+const intakeController = require('../controllers/intake.controller');
 const { protect } = require('../middleware/auth.middleware');
 
 // All project routes require authentication
@@ -86,5 +88,25 @@ router.route('/:projectId/modules/:moduleId')
   .get(moduleController.getModule)
   .patch(moduleController.updateModule)
   .delete(moduleController.deleteModule);
+
+// ── Project Docs / Pages ───────────────────────────────────────────────────
+router.route('/:projectId/docs')
+  .get(docController.getDocs)
+  .post(docController.createDoc);
+
+router.route('/:projectId/docs/:docId')
+  .get(docController.getDoc)
+  .patch(docController.updateDoc)
+  .delete(docController.deleteDoc);
+
+// ── Project Triage / Client Intake Management ──────────────────────────────
+router.route('/:projectId/intake')
+  .get(intakeController.getProjectTickets);
+
+router.route('/:projectId/intake/:ticketId')
+  .patch(intakeController.updateTicketStatus)
+  .delete(intakeController.deleteTicket);
+
+router.post('/:projectId/intake/:ticketId/convert', intakeController.convertTicketToTask);
 
 module.exports = router;

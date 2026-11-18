@@ -14,6 +14,7 @@ const meetingRoutes = require('./src/routes/meeting.route');
 const subscriptionRoutes = require('./src/routes/subscription.route');
 const adminRoutes = require('./src/routes/admin.route');
 const paymentRoutes = require('./src/routes/payment.route');
+const intakeRoutes = require('./src/routes/intake.route');
  
 const app = express();
  
@@ -57,6 +58,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/meetings', meetingRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/intake', intakeRoutes);
 app.use('/api', paymentRoutes);
  
 // Health check

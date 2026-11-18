@@ -3,8 +3,12 @@ import { useEffect, useState, useRef, useMemo, FormEvent, useCallback } from 're
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
-import { projectsApi, tasksApi, meetingsApi, getPersonalizedMeetLink, cyclesApi, modulesApi } from '@/lib/api';
-import type { Project, ProjectMember, Task, TaskStatus, TaskPriority, Comment, ChecklistItem, Meeting, User as ApiUser, Cycle, Module, CycleStatus, ModuleStatus } from '@/lib/api';
+import { projectsApi, tasksApi, meetingsApi, getPersonalizedMeetLink, cyclesApi, modulesApi, docsApi, intakeApi } from '@/lib/api';
+import type {
+  Project, ProjectMember, Task, TaskStatus, TaskPriority, Comment, ChecklistItem,
+  Meeting, User as ApiUser, Cycle, Module, CycleStatus, ModuleStatus,
+  Doc, CreateDocPayload, IntakeTicket, TicketPriority, TicketCategory, TicketStatus, ConvertTicketPayload
+} from '@/lib/api';
 import { useTimer } from '@/lib/timer-context';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
@@ -17,7 +21,8 @@ import {
   MessageSquare, CornerDownLeft, GripVertical,
   Search, X, User, Users, CheckSquare, Download, ExternalLink, Clock,
   Video, Calendar, Copy, Check, ChevronDown, ChevronUp, Lock,
-  Zap, Package, Flag, AlertCircle, ArrowUpRight, Play, CheckCircle2, PauseCircle, Layers
+  Zap, Package, Flag, AlertCircle, ArrowUpRight, Play, CheckCircle2, PauseCircle, Layers,
+  FileText, BookOpen, Inbox, Pin, PinOff, Sparkles, Building, Mail, Eye, Code, Quote, List, Share2
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -1916,7 +1921,7 @@ export default function ProjectDetailPage() {
   const [tasks, setTasks]       = useState<Task[]>([]);
   const [myRole, setMyRole]     = useState<'admin' | 'member'>('member');
   const [loading, setLoading]   = useState(true);
-  const [tab, setTab]           = useState<'board' | 'list' | 'calendar' | 'cycles' | 'modules' | 'meetings' | 'members'>('board');
+  const [tab, setTab]           = useState<'board' | 'list' | 'calendar' | 'cycles' | 'modules' | 'docs' | 'triage' | 'meetings' | 'members'>('board');
   const [calendarDate, setCalendarDate] = useState<Date>(() => new Date());
 
   // Cycles (Sprints) State
@@ -1950,6 +1955,40 @@ export default function ProjectDetailPage() {
   const [moduleLead, setModuleLead]                           = useState('');
   const [submittingModule, setSubmittingModule]               = useState(false);
   const [deleteModuleTarget, setDeleteModuleTarget]           = useState<Module | null>(null);
+
+  // Project Docs & Wiki State
+  const [docs, setDocs]                                       = useState<Doc[]>([]);
+  const [activeDoc, setActiveDoc]                             = useState<Doc | null>(null);
+  const [isEditingDoc, setIsEditingDoc]                       = useState(false);
+  const [docTitle, setDocTitle]                               = useState('');
+  const [docContent, setDocContent]                           = useState('');
+  const [docTags, setDocTags]                                 = useState<string[]>([]);
+  const [docTagInput, setDocTagInput]                         = useState('');
+  const [docIsPinned, setDocIsPinned]                         = useState(false);
+  const [docSearch, setDocSearch]                             = useState('');
+  const [docTagFilter, setDocTagFilter]                       = useState('');
+  const [showNewDocModal, setShowNewDocModal]                 = useState(false);
+  const [submittingDoc, setSubmittingDoc]                     = useState(false);
+  const [deleteDocTarget, setDeleteDocTarget]                 = useState<Doc | null>(null);
+
+  // Client Intake & CRM Triage State
+  const [intakeTickets, setIntakeTickets]                     = useState<IntakeTicket[]>([]);
+  const [pendingTicketsCount, setPendingTicketsCount]         = useState(0);
+  const [ticketStatusFilter, setTicketStatusFilter]           = useState<string>('all');
+  const [ticketCategoryFilter, setTicketCategoryFilter]       = useState<string>('all');
+  const [ticketSearch, setTicketSearch]                       = useState('');
+  const [convertTicketTarget, setConvertTicketTarget]         = useState<IntakeTicket | null>(null);
+  const [convertPriority, setConvertPriority]                 = useState<TaskPriority>('medium');
+  const [convertAssignees, setConvertAssignees]               = useState<string[]>([]);
+  const [convertDueDate, setConvertDueDate]                   = useState('');
+  const [convertCycle, setConvertCycle]                       = useState('');
+  const [convertModule, setConvertModule]                     = useState('');
+  const [submittingConvert, setSubmittingConvert]             = useState(false);
+  const [declineTicketTarget, setDeclineTicketTarget]         = useState<IntakeTicket | null>(null);
+  const [declineReason, setDeclineReason]                     = useState('');
+  const [submittingDecline, setSubmittingDecline]             = useState(false);
+  const [deleteTicketTarget, setDeleteTicketTarget]           = useState<IntakeTicket | null>(null);
+  const [copiedIntakeLink, setCopiedIntakeLink]               = useState(false);
 
   // Project Meetings Tab State
   const [projectMeetings, setProjectMeetings]                 = useState<Meeting[]>([]);
@@ -2005,11 +2044,13 @@ export default function ProjectDetailPage() {
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [pRes, tRes, cRes, mRes] = await Promise.all([
+      const [pRes, tRes, cRes, mRes, dRes, iRes] = await Promise.all([
         projectsApi.get(id),
         tasksApi.list(id, { limit: 1000 }),
         cyclesApi.list(id).catch(() => ({ success: false, cycles: [] })),
         modulesApi.list(id).catch(() => ({ success: false, modules: [] })),
+        docsApi.list(id).catch(() => ({ success: false, docs: [] })),
+        intakeApi.list(id).catch(() => ({ success: false, tickets: [], pendingCount: 0 })),
       ]);
       setProject(pRes.project);
       if (pRes.project?.tags) setProjectTags(pRes.project.tags);
@@ -2018,6 +2059,14 @@ export default function ProjectDetailPage() {
       setTasks(tRes.tasks);
       if (cRes.success && cRes.cycles) setCycles(cRes.cycles);
       if (mRes.success && mRes.modules) setModules(mRes.modules);
+      if (dRes.success && dRes.docs) {
+        setDocs(dRes.docs);
+        setActiveDoc((prev) => prev ? (dRes.docs.find((d) => d._id === prev._id) || dRes.docs[0] || null) : (dRes.docs[0] || null));
+      }
+      if (iRes.success && iRes.tickets) {
+        setIntakeTickets(iRes.tickets);
+        setPendingTicketsCount(iRes.pendingCount || 0);
+      }
     } catch {
       if (!silent) {
         toast('Failed to load project', 'error');
@@ -2037,8 +2086,10 @@ export default function ProjectDetailPage() {
       tasksApi.list(id, { limit: 1000 }),
       cyclesApi.list(id).catch(() => ({ success: false, cycles: [] })),
       modulesApi.list(id).catch(() => ({ success: false, modules: [] })),
+      docsApi.list(id).catch(() => ({ success: false, docs: [] })),
+      intakeApi.list(id).catch(() => ({ success: false, tickets: [], pendingCount: 0 })),
     ])
-      .then(([pRes, tRes, cRes, mRes]) => {
+      .then(([pRes, tRes, cRes, mRes, dRes, iRes]) => {
         if (!active) return;
         setProject(pRes.project);
         if (pRes.project?.tags) setProjectTags(pRes.project.tags);
@@ -2047,6 +2098,14 @@ export default function ProjectDetailPage() {
         setTasks(tRes.tasks);
         if (cRes.success && cRes.cycles) setCycles(cRes.cycles);
         if (mRes.success && mRes.modules) setModules(mRes.modules);
+        if (dRes.success && dRes.docs) {
+          setDocs(dRes.docs);
+          setActiveDoc((prev) => prev ? (dRes.docs.find((d) => d._id === prev._id) || dRes.docs[0] || null) : (dRes.docs[0] || null));
+        }
+        if (iRes.success && iRes.tickets) {
+          setIntakeTickets(iRes.tickets);
+          setPendingTicketsCount(iRes.pendingCount || 0);
+        }
       })
       .catch(() => {
         if (!active) return;
@@ -2073,6 +2132,19 @@ export default function ProjectDetailPage() {
         modulesApi.list(id)
           .then((mRes) => {
             if (active && mRes.modules) setModules(mRes.modules);
+          })
+          .catch(console.error);
+        docsApi.list(id)
+          .then((dRes) => {
+            if (active && dRes.docs) setDocs(dRes.docs);
+          })
+          .catch(console.error);
+        intakeApi.list(id)
+          .then((iRes) => {
+            if (active && iRes.tickets) {
+              setIntakeTickets(iRes.tickets);
+              setPendingTicketsCount(iRes.pendingCount || 0);
+            }
           })
           .catch(console.error);
       }
@@ -2383,6 +2455,269 @@ export default function ProjectDetailPage() {
       toast(err instanceof Error ? err.message : 'Failed to delete module', 'error');
     }
   };
+
+  // ── Project Docs & Wiki Actions ──────────────────────────────────────────
+  const openCreateDoc = () => {
+    setDocTitle('');
+    setDocContent('');
+    setDocTags([]);
+    setDocTagInput('');
+    setDocIsPinned(false);
+    setShowNewDocModal(true);
+  };
+
+  const handleSaveNewDoc = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!docTitle.trim()) return;
+    try {
+      setSubmittingDoc(true);
+      const res = await docsApi.create(id, {
+        title: docTitle.trim(),
+        content: docContent,
+        tags: docTags,
+        isPinned: docIsPinned,
+      });
+      if (res.success && res.doc) {
+        toast('Document created! 📄', 'success');
+        setDocs((prev) => [res.doc, ...prev]);
+        setActiveDoc(res.doc);
+        setIsEditingDoc(false);
+        setShowNewDocModal(false);
+      }
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to create document', 'error');
+    } finally {
+      setSubmittingDoc(false);
+    }
+  };
+
+  const handleSelectDoc = (doc: Doc) => {
+    setActiveDoc(doc);
+    setDocTitle(doc.title);
+    setDocContent(doc.content);
+    setDocTags(doc.tags || []);
+    setDocIsPinned(Boolean(doc.isPinned));
+    setIsEditingDoc(false);
+  };
+
+  const handleStartEditingDoc = () => {
+    if (!activeDoc) return;
+    setDocTitle(activeDoc.title);
+    setDocContent(activeDoc.content);
+    setDocTags(activeDoc.tags || []);
+    setDocIsPinned(Boolean(activeDoc.isPinned));
+    setIsEditingDoc(true);
+  };
+
+  const handleSaveActiveDoc = async () => {
+    if (!activeDoc || !docTitle.trim()) return;
+    try {
+      setSubmittingDoc(true);
+      const res = await docsApi.update(id, activeDoc._id, {
+        title: docTitle.trim(),
+        content: docContent,
+        tags: docTags,
+        isPinned: docIsPinned,
+      });
+      if (res.success && res.doc) {
+        toast('Document saved! 💾', 'success');
+        setDocs((prev) => prev.map((d) => (d._id === activeDoc._id ? res.doc : d)));
+        setActiveDoc(res.doc);
+        setIsEditingDoc(false);
+      }
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to save document', 'error');
+    } finally {
+      setSubmittingDoc(false);
+    }
+  };
+
+  const handleTogglePinDoc = async (doc: Doc) => {
+    try {
+      const newPinned = !doc.isPinned;
+      const res = await docsApi.update(id, doc._id, { isPinned: newPinned });
+      if (res.success && res.doc) {
+        toast(newPinned ? 'Document pinned to top 📌' : 'Document unpinned', 'success');
+        setDocs((prev) =>
+          prev
+            .map((d) => (d._id === doc._id ? res.doc : d))
+            .sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0))
+        );
+        if (activeDoc?._id === doc._id) setActiveDoc(res.doc);
+      }
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to toggle pin', 'error');
+    }
+  };
+
+  const confirmDeleteDoc = async () => {
+    if (!deleteDocTarget) return;
+    try {
+      await docsApi.delete(id, deleteDocTarget._id);
+      toast('Document deleted', 'success');
+      const remaining = docs.filter((d) => d._id !== deleteDocTarget._id);
+      setDocs(remaining);
+      if (activeDoc?._id === deleteDocTarget._id) {
+        setActiveDoc(remaining[0] || null);
+        setIsEditingDoc(false);
+      }
+      setDeleteDocTarget(null);
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to delete document', 'error');
+    }
+  };
+
+  const downloadDocMarkdown = (doc: Doc) => {
+    const filename = `${doc.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'document'}.md`;
+    const blob = new Blob([doc.content || ''], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast(`Downloaded ${filename}`, 'success');
+  };
+
+  const insertMarkdownSyntax = (prefix: string, suffix: string = '') => {
+    const textarea = document.getElementById('doc-editor-textarea') as HTMLTextAreaElement | null;
+    if (!textarea) {
+      setDocContent((prev) => prev + prefix + suffix);
+      return;
+    }
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selection = docContent.substring(start, end);
+    const replacement = prefix + (selection || 'text') + suffix;
+    const updated = docContent.substring(0, start) + replacement + docContent.substring(end);
+    setDocContent(updated);
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + prefix.length, start + prefix.length + (selection ? selection.length : 4));
+    }, 50);
+  };
+
+  // ── Client Intake & CRM Triage Actions ─────────────────────────────────────
+  const copyPublicIntakeLink = () => {
+    const url = `${window.location.origin}/intake/${id}`;
+    navigator.clipboard.writeText(url);
+    setCopiedIntakeLink(true);
+    toast('Public client portal link copied! 📋', 'success');
+    setTimeout(() => setCopiedIntakeLink(false), 2500);
+  };
+
+  const openConvertTicketModal = (ticket: IntakeTicket) => {
+    setConvertTicketTarget(ticket);
+    setConvertPriority(ticket.priority || 'medium');
+    setConvertAssignees([]);
+    setConvertDueDate('');
+    setConvertCycle('');
+    setConvertModule('');
+  };
+
+  const handleConvertTicketToTask = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!convertTicketTarget) return;
+    try {
+      setSubmittingConvert(true);
+      const res = await intakeApi.convertToTask(id, convertTicketTarget._id, {
+        priority: convertPriority,
+        assignedTo: convertAssignees,
+        dueDate: convertDueDate || undefined,
+        cycle: convertCycle || undefined,
+        module: convertModule || undefined,
+      });
+      if (res.success) {
+        toast('Converted to active Kanban Task! 🚀', 'success');
+        setIntakeTickets((prev) =>
+          prev.map((t) => (t._id === convertTicketTarget._id ? res.ticket : t))
+        );
+        setPendingTicketsCount((prev) => Math.max(0, prev - 1));
+        setConvertTicketTarget(null);
+        await load(true);
+      }
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to convert ticket', 'error');
+    } finally {
+      setSubmittingConvert(false);
+    }
+  };
+
+  const openDeclineTicketModal = (ticket: IntakeTicket) => {
+    setDeclineTicketTarget(ticket);
+    setDeclineReason('');
+  };
+
+  const handleDeclineTicket = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!declineTicketTarget) return;
+    try {
+      setSubmittingDecline(true);
+      const res = await intakeApi.updateStatus(id, declineTicketTarget._id, {
+        status: 'declined',
+        declineReason: declineReason.trim() || undefined,
+      });
+      if (res.success) {
+        toast('Ticket marked as declined', 'success');
+        setIntakeTickets((prev) =>
+          prev.map((t) => (t._id === declineTicketTarget._id ? res.ticket : t))
+        );
+        setPendingTicketsCount((prev) => Math.max(0, prev - 1));
+        setDeclineTicketTarget(null);
+      }
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to decline ticket', 'error');
+    } finally {
+      setSubmittingDecline(false);
+    }
+  };
+
+  const confirmDeleteTicket = async () => {
+    if (!deleteTicketTarget) return;
+    try {
+      await intakeApi.delete(id, deleteTicketTarget._id);
+      toast('Ticket deleted', 'success');
+      setIntakeTickets((prev) => prev.filter((t) => t._id !== deleteTicketTarget._id));
+      if (deleteTicketTarget.status === 'pending_review') {
+        setPendingTicketsCount((prev) => Math.max(0, prev - 1));
+      }
+      setDeleteTicketTarget(null);
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to delete ticket', 'error');
+    }
+  };
+
+  const filteredDocs = useMemo(() => {
+    return docs.filter((d) => {
+      const matchesSearch = !docSearch.trim() ||
+        d.title.toLowerCase().includes(docSearch.toLowerCase()) ||
+        (d.content && d.content.toLowerCase().includes(docSearch.toLowerCase()));
+      const matchesTag = !docTagFilter || (d.tags && d.tags.includes(docTagFilter));
+      return matchesSearch && matchesTag;
+    });
+  }, [docs, docSearch, docTagFilter]);
+
+  const allDocTags = useMemo(() => {
+    const set = new Set<string>();
+    docs.forEach((d) => d.tags?.forEach((t) => set.add(t)));
+    return Array.from(set);
+  }, [docs]);
+
+  const filteredTickets = useMemo(() => {
+    return intakeTickets.filter((t) => {
+      const matchesStatus = ticketStatusFilter === 'all' || t.status === ticketStatusFilter;
+      const matchesCategory = ticketCategoryFilter === 'all' || t.category === ticketCategoryFilter;
+      const matchesSearch = !ticketSearch.trim() ||
+        t.title.toLowerCase().includes(ticketSearch.toLowerCase()) ||
+        t.description.toLowerCase().includes(ticketSearch.toLowerCase()) ||
+        t.clientName.toLowerCase().includes(ticketSearch.toLowerCase()) ||
+        t.clientEmail.toLowerCase().includes(ticketSearch.toLowerCase()) ||
+        (t.company && t.company.toLowerCase().includes(ticketSearch.toLowerCase()));
+      return matchesStatus && matchesCategory && matchesSearch;
+    });
+  }, [intakeTickets, ticketStatusFilter, ticketCategoryFilter, ticketSearch]);
 
   const openCreateTask = useCallback((defaultDueDate?: string | React.MouseEvent) => {
     setEditingTask(null);
@@ -3687,11 +4022,13 @@ export default function ProjectDetailPage() {
 
           {/* ── Tabs ── */}
           <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 32, overflowX: 'auto', paddingBottom: 1 }}>
-            {(['board', 'list', 'calendar', 'cycles', 'modules', 'meetings', 'members'] as const).map((t) => {
+            {(['board', 'list', 'calendar', 'cycles', 'modules', 'docs', 'triage', 'meetings', 'members'] as const).map((t) => {
               const activeCount = t === 'cycles'
                 ? cycles.filter(c => c.status === 'current').length
                 : t === 'modules'
                 ? modules.filter(m => m.status === 'in_progress').length
+                : t === 'triage'
+                ? pendingTicketsCount
                 : null;
               return (
                 <button
@@ -3721,14 +4058,24 @@ export default function ProjectDetailPage() {
                 >
                   {t === 'cycles' && <Zap size={13} color={tab === t ? '#facc15' : 'currentColor'} />}
                   {t === 'modules' && <Package size={13} color={tab === t ? '#c084fc' : 'currentColor'} />}
+                  {t === 'docs' && <BookOpen size={13} color={tab === t ? '#38bdf8' : 'currentColor'} />}
+                  {t === 'triage' && <Inbox size={13} color={tab === t ? '#f97316' : 'currentColor'} />}
                   <span>{t}</span>
                   {activeCount !== null && activeCount > 0 && (
                     <span style={{
                       fontSize: 10,
                       padding: '1px 6px',
                       borderRadius: 8,
-                      background: t === 'cycles' ? 'rgba(234, 179, 8, 0.2)' : 'rgba(168, 85, 247, 0.2)',
-                      color: t === 'cycles' ? '#facc15' : '#c084fc',
+                      background: t === 'cycles'
+                        ? 'rgba(234, 179, 8, 0.2)'
+                        : t === 'modules'
+                        ? 'rgba(168, 85, 247, 0.2)'
+                        : 'rgba(249, 115, 22, 0.2)',
+                      color: t === 'cycles'
+                        ? '#facc15'
+                        : t === 'modules'
+                        ? '#c084fc'
+                        : '#fb923c',
                       fontWeight: 600
                     }}>
                       {activeCount}
@@ -5209,6 +5556,751 @@ export default function ProjectDetailPage() {
             </div>
           )}
 
+          {/* ══ Docs & Specifications View ══ */}
+          {tab === 'docs' && (
+            <div style={{ maxWidth: 1200, ...(project?.hasActiveSubscription === false ? { filter: 'blur(5px)', opacity: 0.35, pointerEvents: 'none', userSelect: 'none' } : {}) }}>
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+                <div>
+                  <h3 style={{ fontFamily: 'Fraunces, serif', fontSize: 24, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <BookOpen size={22} color="#38bdf8" /> Project Docs & Specifications
+                  </h3>
+                  <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 13, fontFamily: 'Outfit, sans-serif' }}>
+                    Centralize product requirements (PRDs), meeting notes, architecture specs, and client briefs.
+                  </p>
+                </div>
+                {myRole === 'admin' && project?.hasActiveSubscription !== false && (
+                  <button
+                    type="button"
+                    onClick={openCreateDoc}
+                    className="btn-primary"
+                    style={{ padding: '9px 18px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg, #0284c7, #0369a1)' }}
+                  >
+                    <Plus size={15} /> New Document
+                  </button>
+                )}
+              </div>
+
+              {docs.length === 0 ? (
+                <div
+                  style={{
+                    background: 'rgba(255,255,255,0.02)',
+                    border: '1px dashed rgba(255,255,255,0.1)',
+                    borderRadius: 14,
+                    padding: '48px 24px',
+                    textAlign: 'center',
+                    maxWidth: 540,
+                    margin: '32px auto',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 54,
+                      height: 54,
+                      borderRadius: 14,
+                      background: 'rgba(56, 189, 248, 0.12)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      margin: '0 auto 16px',
+                    }}
+                  >
+                    <BookOpen size={26} color="#38bdf8" />
+                  </div>
+                  <h4 style={{ fontFamily: 'Fraunces, serif', fontSize: 20, color: 'var(--text-primary)', margin: '0 0 8px' }}>
+                    No Documents Yet
+                  </h4>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'Outfit, sans-serif', lineHeight: 1.5, margin: '0 0 20px' }}>
+                    Write PRDs, engineering plans, meeting notes, and knowledge base articles right inside your project with full Markdown support.
+                  </p>
+                  {myRole === 'admin' && project?.hasActiveSubscription !== false && (
+                    <button
+                      type="button"
+                      onClick={openCreateDoc}
+                      className="btn-primary"
+                      style={{ padding: '10px 20px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg, #0284c7, #0369a1)' }}
+                    >
+                      <Plus size={15} /> Create First Document
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 24, alignItems: 'start' }}>
+                  {/* Left Sidebar: Document List */}
+                  <div
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px solid rgba(255, 255, 255, 0.06)',
+                      borderRadius: 14,
+                      padding: 16,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 12,
+                    }}
+                  >
+                    {/* Search */}
+                    <div style={{ position: 'relative' }}>
+                      <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                      <input
+                        type="text"
+                        placeholder="Search docs..."
+                        value={docSearch}
+                        onChange={(e) => setDocSearch(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px 8px 30px',
+                          background: 'rgba(255,255,255,0.04)',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          borderRadius: 8,
+                          color: 'var(--text-primary)',
+                          fontSize: 12,
+                          fontFamily: 'Outfit, sans-serif',
+                          outline: 'none',
+                        }}
+                      />
+                    </div>
+
+                    {/* Tag Filter Pills */}
+                    {allDocTags.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingBottom: 6, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <button
+                          type="button"
+                          onClick={() => setDocTagFilter('')}
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: 10,
+                            fontSize: 11,
+                            fontFamily: 'Outfit, sans-serif',
+                            background: !docTagFilter ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255,255,255,0.04)',
+                            color: !docTagFilter ? '#38bdf8' : 'var(--text-secondary)',
+                            border: 'none',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          All
+                        </button>
+                        {allDocTags.map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => setDocTagFilter(t === docTagFilter ? '' : t)}
+                            style={{
+                              padding: '2px 8px',
+                              borderRadius: 10,
+                              fontSize: 11,
+                              fontFamily: 'Outfit, sans-serif',
+                              background: docTagFilter === t ? 'rgba(56, 189, 248, 0.25)' : 'rgba(255,255,255,0.04)',
+                              color: docTagFilter === t ? '#38bdf8' : 'var(--text-secondary)',
+                              border: 'none',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            #{t}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Doc Cards */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: '65vh', overflowY: 'auto' }}>
+                      {filteredDocs.map((d) => {
+                        const isSelected = activeDoc?._id === d._id;
+                        return (
+                          <div
+                            key={d._id}
+                            onClick={() => handleSelectDoc(d)}
+                            style={{
+                              padding: '12px 14px',
+                              borderRadius: 10,
+                              background: isSelected ? 'rgba(56, 189, 248, 0.08)' : 'rgba(255,255,255,0.02)',
+                              border: isSelected ? '1px solid rgba(56, 189, 248, 0.35)' : '1px solid rgba(255,255,255,0.05)',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 6,
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isSelected) e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isSelected) e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)';
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                              <span style={{
+                                fontWeight: isSelected ? 600 : 500,
+                                fontSize: 13,
+                                color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)',
+                                fontFamily: 'Outfit, sans-serif',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}>
+                                {d.title}
+                              </span>
+                              {d.isPinned && (
+                                <Pin size={12} color="#facc15" style={{ flexShrink: 0 }} />
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
+                              <span>{d.lastEditedBy?.name || d.createdBy?.name || 'Member'}</span>
+                              <span>{new Date(d.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                            </div>
+                            {d.tags && d.tags.length > 0 && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
+                                {d.tags.slice(0, 3).map((tg) => (
+                                  <span key={tg} style={{ fontSize: 10, color: 'var(--text-muted)', background: 'rgba(255,255,255,0.04)', padding: '1px 5px', borderRadius: 4 }}>
+                                    #{tg}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {filteredDocs.length === 0 && (
+                        <div style={{ textAlign: 'center', padding: '24px 8px', color: 'var(--text-muted)', fontSize: 12 }}>
+                          No docs matching search
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right Pane: Document Viewer / Editor */}
+                  {activeDoc ? (
+                    <div
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.02)',
+                        border: '1px solid rgba(255, 255, 255, 0.06)',
+                        borderRadius: 14,
+                        padding: 24,
+                        minHeight: 520,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 16,
+                      }}
+                    >
+                      {/* Canvas Header & Actions */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+                        {isEditingDoc ? (
+                          <input
+                            type="text"
+                            value={docTitle}
+                            onChange={(e) => setDocTitle(e.target.value)}
+                            placeholder="Document title..."
+                            style={{
+                              flex: 1,
+                              minWidth: 260,
+                              fontFamily: 'Fraunces, serif',
+                              fontSize: 22,
+                              color: 'var(--text-primary)',
+                              background: 'transparent',
+                              border: 'none',
+                              borderBottom: '1px solid var(--accent-primary)',
+                              outline: 'none',
+                              padding: '4px 0',
+                            }}
+                          />
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 260 }}>
+                            <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 24, color: 'var(--text-primary)', margin: 0 }}>
+                              {activeDoc.title}
+                            </h2>
+                            {activeDoc.isPinned && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(250, 204, 21, 0.15)', color: '#facc15', fontSize: 11, padding: '2px 8px', borderRadius: 12, fontWeight: 500 }}>
+                                <Pin size={11} /> Pinned
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Action buttons */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <button
+                            type="button"
+                            onClick={() => handleTogglePinDoc(activeDoc)}
+                            className="btn-ghost"
+                            style={{ padding: '6px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, color: activeDoc.isPinned ? '#facc15' : 'var(--text-secondary)' }}
+                            title={activeDoc.isPinned ? 'Unpin doc' : 'Pin doc to top'}
+                          >
+                            {activeDoc.isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+                            <span>{activeDoc.isPinned ? 'Unpin' : 'Pin'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => downloadDocMarkdown(activeDoc)}
+                            className="btn-ghost"
+                            style={{ padding: '6px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                            title="Download Markdown file (.md)"
+                          >
+                            <Download size={14} /> <span>Export .md</span>
+                          </button>
+
+                          {myRole === 'admin' && project?.hasActiveSubscription !== false && (
+                            <>
+                              {isEditingDoc ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setIsEditingDoc(false);
+                                      setDocTitle(activeDoc.title);
+                                      setDocContent(activeDoc.content);
+                                    }}
+                                    className="btn-ghost"
+                                    style={{ padding: '6px 12px', fontSize: 12 }}
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={handleSaveActiveDoc}
+                                    disabled={submittingDoc}
+                                    className="btn-primary"
+                                    style={{ padding: '6px 16px', fontSize: 12, background: 'linear-gradient(135deg, #0284c7, #0369a1)' }}
+                                  >
+                                    {submittingDoc ? 'Saving…' : 'Save Changes'}
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={handleStartEditingDoc}
+                                  className="btn-ghost"
+                                  style={{ padding: '6px 12px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid rgba(255,255,255,0.1)' }}
+                                >
+                                  <Code size={14} /> <span>Edit Spec</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setDeleteDocTarget(activeDoc)}
+                                className="btn-ghost"
+                                style={{ padding: '6px 10px', color: '#ef4444' }}
+                                title="Delete document"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Content Area */}
+                      {isEditingDoc ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                          {/* Markdown Toolbar */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: 8 }}>
+                            <button type="button" onClick={() => insertMarkdownSyntax('# ')} className="btn-ghost" style={{ padding: '4px 8px', fontSize: 11, fontWeight: 700 }}>H1</button>
+                            <button type="button" onClick={() => insertMarkdownSyntax('## ')} className="btn-ghost" style={{ padding: '4px 8px', fontSize: 11, fontWeight: 700 }}>H2</button>
+                            <button type="button" onClick={() => insertMarkdownSyntax('### ')} className="btn-ghost" style={{ padding: '4px 8px', fontSize: 11, fontWeight: 700 }}>H3</button>
+                            <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.1)', margin: '0 4px' }} />
+                            <button type="button" onClick={() => insertMarkdownSyntax('**', '**')} className="btn-ghost" style={{ padding: '4px 8px', fontSize: 11, fontWeight: 700 }}>Bold</button>
+                            <button type="button" onClick={() => insertMarkdownSyntax('*', '*')} className="btn-ghost" style={{ padding: '4px 8px', fontSize: 11, fontStyle: 'italic' }}>Italic</button>
+                            <button type="button" onClick={() => insertMarkdownSyntax('`', '`')} className="btn-ghost" style={{ padding: '4px 8px', fontSize: 11, fontFamily: 'monospace' }}>Code</button>
+                            <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.1)', margin: '0 4px' }} />
+                            <button type="button" onClick={() => insertMarkdownSyntax('- ')} className="btn-ghost" style={{ padding: '4px 8px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}><List size={12} /> List</button>
+                            <button type="button" onClick={() => insertMarkdownSyntax('> ')} className="btn-ghost" style={{ padding: '4px 8px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Quote size={12} /> Quote</button>
+                            <button type="button" onClick={() => insertMarkdownSyntax('```\n', '\n```')} className="btn-ghost" style={{ padding: '4px 8px', fontSize: 11 }}>``` Block</button>
+                            <button type="button" onClick={() => insertMarkdownSyntax('[', '](https://)')} className="btn-ghost" style={{ padding: '4px 8px', fontSize: 11 }}>Link</button>
+                          </div>
+
+                          <textarea
+                            id="doc-editor-textarea"
+                            rows={18}
+                            value={docContent}
+                            onChange={(e) => setDocContent(e.target.value)}
+                            placeholder="Write your document content in Markdown (headings, lists, code fences, diagrams, tables)..."
+                            style={{
+                              width: '100%',
+                              padding: 16,
+                              background: 'rgba(0,0,0,0.3)',
+                              border: '1px solid rgba(255,255,255,0.1)',
+                              borderRadius: 10,
+                              color: 'var(--text-primary)',
+                              fontSize: 13,
+                              fontFamily: 'monospace',
+                              lineHeight: 1.6,
+                              resize: 'vertical',
+                              outline: 'none',
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                          {/* Metadata row */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-secondary)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span>Created by <strong style={{ color: 'var(--text-primary)' }}>{activeDoc.createdBy?.name || 'Member'}</strong></span>
+                              <span>•</span>
+                              <span>Last updated {new Date(activeDoc.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                            </div>
+                            {activeDoc.tags && activeDoc.tags.length > 0 && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                {activeDoc.tags.map((tg) => (
+                                  <span key={tg} style={{ fontSize: 11, color: '#38bdf8', background: 'rgba(56, 189, 248, 0.1)', padding: '2px 8px', borderRadius: 8 }}>
+                                    #{tg}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Rendered Markdown Content */}
+                          <div
+                            style={{
+                              color: 'var(--text-primary)',
+                              fontFamily: 'Outfit, sans-serif',
+                              fontSize: 14,
+                              lineHeight: 1.7,
+                              paddingTop: 8,
+                            }}
+                          >
+                            {activeDoc.content ? (
+                              <ReactMarkdown>{activeDoc.content}</ReactMarkdown>
+                            ) : (
+                              <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: '32px 0', textAlign: 'center' }}>
+                                This document is empty. Click "Edit Spec" above to add requirements and notes.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
+                      Select a document from the left to view or edit.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ══ Client Intake & CRM Triage View ══ */}
+          {tab === 'triage' && (
+            <div style={{ maxWidth: 1100, ...(project?.hasActiveSubscription === false ? { filter: 'blur(5px)', opacity: 0.35, pointerEvents: 'none', userSelect: 'none' } : {}) }}>
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+                <div>
+                  <h3 style={{ fontFamily: 'Fraunces, serif', fontSize: 24, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Inbox size={22} color="#f97316" /> Client Intake & CRM Triage
+                    {pendingTicketsCount > 0 && (
+                      <span style={{ background: 'rgba(249, 115, 22, 0.2)', color: '#fb923c', fontSize: 12, padding: '2px 8px', borderRadius: 10, fontWeight: 600 }}>
+                        {pendingTicketsCount} pending
+                      </span>
+                    )}
+                  </h3>
+                  <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 13, fontFamily: 'Outfit, sans-serif' }}>
+                    External clients and stakeholders can submit feature requests, bug reports, and inquiries directly into this queue.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={copyPublicIntakeLink}
+                    className="btn-ghost"
+                    style={{ padding: '8px 16px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 8, border: '1px solid rgba(255,255,255,0.1)' }}
+                  >
+                    {copiedIntakeLink ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+                    <span>{copiedIntakeLink ? 'Link Copied!' : 'Copy Public Intake Link'}</span>
+                  </button>
+                  <a
+                    href={`/intake/${id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-ghost"
+                    style={{ padding: '8px 16px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}
+                  >
+                    <ExternalLink size={14} />
+                    <span>Open Public Portal</span>
+                  </a>
+                </div>
+              </div>
+
+              {/* Sub-bar: Status and Category Filters */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12, background: 'rgba(255,255,255,0.02)', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.05)' }}>
+                {/* Status Pills */}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {[
+                    { key: 'all', label: `All (${intakeTickets.length})` },
+                    { key: 'pending_review', label: `Pending Review (${pendingTicketsCount})` },
+                    { key: 'accepted', label: `Accepted (${intakeTickets.filter(t => t.status === 'accepted').length})` },
+                    { key: 'declined', label: `Declined (${intakeTickets.filter(t => t.status === 'declined').length})` },
+                  ].map((filter) => (
+                    <button
+                      key={filter.key}
+                      type="button"
+                      onClick={() => setTicketStatusFilter(filter.key)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 8,
+                        fontSize: 12,
+                        fontFamily: 'Outfit, sans-serif',
+                        fontWeight: 500,
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: ticketStatusFilter === filter.key ? 'rgba(249, 115, 22, 0.2)' : 'rgba(255,255,255,0.04)',
+                        color: ticketStatusFilter === filter.key ? '#fb923c' : 'var(--text-secondary)',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Category & Search */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <select
+                    value={ticketCategoryFilter}
+                    onChange={(e) => setTicketCategoryFilter(e.target.value)}
+                    style={{
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: 8,
+                      padding: '6px 10px',
+                      color: 'var(--text-primary)',
+                      fontSize: 12,
+                      fontFamily: 'Outfit, sans-serif',
+                      outline: 'none',
+                    }}
+                  >
+                    <option value="all">All Categories</option>
+                    <option value="feature_request">Feature Requests</option>
+                    <option value="bug_report">Bug Reports</option>
+                    <option value="inquiry">Client Inquiries</option>
+                    <option value="support">Support Tickets</option>
+                  </select>
+
+                  <div style={{ position: 'relative' }}>
+                    <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                    <input
+                      type="text"
+                      placeholder="Search tickets..."
+                      value={ticketSearch}
+                      onChange={(e) => setTicketSearch(e.target.value)}
+                      style={{
+                        padding: '6px 12px 6px 28px',
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: 8,
+                        color: 'var(--text-primary)',
+                        fontSize: 12,
+                        fontFamily: 'Outfit, sans-serif',
+                        outline: 'none',
+                        width: 170,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Tickets List */}
+              {filteredTickets.length === 0 ? (
+                <div
+                  style={{
+                    background: 'rgba(255,255,255,0.02)',
+                    border: '1px dashed rgba(255,255,255,0.1)',
+                    borderRadius: 14,
+                    padding: '48px 24px',
+                    textAlign: 'center',
+                    maxWidth: 540,
+                    margin: '32px auto',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 54,
+                      height: 54,
+                      borderRadius: 14,
+                      background: 'rgba(249, 115, 22, 0.12)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      margin: '0 auto 16px',
+                    }}
+                  >
+                    <Inbox size={26} color="#f97316" />
+                  </div>
+                  <h4 style={{ fontFamily: 'Fraunces, serif', fontSize: 20, color: 'var(--text-primary)', margin: '0 0 8px' }}>
+                    No Intake Tickets Found
+                  </h4>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'Outfit, sans-serif', lineHeight: 1.5, margin: '0 0 20px' }}>
+                    Share your project's public intake form link with clients to receive feature requests, bug reports, and inquiries directly into this triage queue.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={copyPublicIntakeLink}
+                    className="btn-primary"
+                    style={{ padding: '10px 20px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg, #f97316, #ea580c)' }}
+                  >
+                    <Copy size={14} /> Copy Public Link
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {filteredTickets.map((t) => {
+                    const categoryColors: Record<string, { bg: string; text: string; label: string }> = {
+                      feature_request: { bg: 'rgba(168, 85, 247, 0.15)', text: '#c084fc', label: 'Feature Request' },
+                      bug_report:      { bg: 'rgba(239, 68, 68, 0.15)',   text: '#f87171', label: 'Bug Report' },
+                      inquiry:         { bg: 'rgba(56, 189, 248, 0.15)',  text: '#38bdf8', label: 'Client Inquiry' },
+                      support:         { bg: 'rgba(16, 185, 129, 0.15)',  text: '#34d399', label: 'Support' },
+                    };
+                    const cat = categoryColors[t.category] || categoryColors.feature_request;
+
+                    return (
+                      <div
+                        key={t._id}
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.02)',
+                          border: '1px solid rgba(255, 255, 255, 0.06)',
+                          borderRadius: 14,
+                          padding: '18px 20px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 12,
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {/* Top Badges Row */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6, background: cat.bg, color: cat.text }}>
+                              {cat.label}
+                            </span>
+                            <span style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              padding: '3px 8px',
+                              borderRadius: 6,
+                              background: t.priority === 'urgent' ? 'rgba(239, 68, 68, 0.2)' : t.priority === 'high' ? 'rgba(249, 115, 22, 0.2)' : 'rgba(255,255,255,0.06)',
+                              color: t.priority === 'urgent' ? '#f87171' : t.priority === 'high' ? '#fb923c' : 'var(--text-secondary)',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.04em',
+                            }}>
+                              {t.priority}
+                            </span>
+                            {t.status === 'pending_review' && (
+                              <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 8px', borderRadius: 6, background: 'rgba(249, 115, 22, 0.15)', color: '#fb923c' }}>
+                                ⏳ Pending Review
+                              </span>
+                            )}
+                            {t.status === 'accepted' && (
+                              <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 8px', borderRadius: 6, background: 'rgba(16, 185, 129, 0.15)', color: '#34d399' }}>
+                                ✓ Converted to Task
+                              </span>
+                            )}
+                            {t.status === 'declined' && (
+                              <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 8px', borderRadius: 6, background: 'rgba(107, 114, 128, 0.2)', color: 'var(--text-muted)' }}>
+                                ✕ Declined
+                              </span>
+                            )}
+                          </div>
+                          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                            {new Date(t.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+
+                        {/* Title & Description */}
+                        <div>
+                          <h4 style={{ fontFamily: 'Fraunces, serif', fontSize: 18, color: 'var(--text-primary)', margin: '0 0 6px' }}>
+                            {t.title}
+                          </h4>
+                          <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 13, fontFamily: 'Outfit, sans-serif', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                            {t.description}
+                          </p>
+                        </div>
+
+                        {/* Client details info */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted)', paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
+                            <User size={13} color="var(--accent-primary)" /> {t.clientName}
+                          </span>
+                          <a
+                            href={`mailto:${t.clientEmail}`}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#38bdf8', textDecoration: 'none' }}
+                          >
+                            <Mail size={13} /> {t.clientEmail}
+                          </a>
+                          {t.company && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <Building size={13} /> {t.company}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Converted Task Link Callout */}
+                        {t.status === 'accepted' && t.convertedToTask && (
+                          <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                              <CheckCircle2 size={15} color="#10b981" />
+                              <span style={{ color: 'var(--text-primary)' }}>
+                                Active Task: <strong>{typeof t.convertedToTask === 'object' ? t.convertedToTask.title : 'Kanban Task'}</strong>
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setTab('board')}
+                              className="btn-ghost"
+                              style={{ padding: '4px 10px', fontSize: 11, color: '#34d399', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                            >
+                              <span>View on Board</span> <ArrowUpRight size={12} />
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Declined reason Callout */}
+                        {t.status === 'declined' && t.declineReason && (
+                          <div style={{ background: 'rgba(239, 68, 68, 0.06)', border: '1px solid rgba(239, 68, 68, 0.15)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--text-secondary)' }}>
+                            <span style={{ color: '#f87171', fontWeight: 600 }}>Decline Reason:</span> {t.declineReason}
+                          </div>
+                        )}
+
+                        {/* Actions for Admin */}
+                        {myRole === 'admin' && project?.hasActiveSubscription !== false && (
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, paddingTop: 4 }}>
+                            {t.status === 'pending_review' && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => openDeclineTicketModal(t)}
+                                  className="btn-ghost"
+                                  style={{ padding: '6px 12px', fontSize: 12, color: 'var(--text-secondary)' }}
+                                >
+                                  Decline
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openConvertTicketModal(t)}
+                                  className="btn-primary"
+                                  style={{ padding: '6px 16px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg, #f97316, #ea580c)' }}
+                                >
+                                  <Sparkles size={13} /> Accept & Convert to Task
+                                </button>
+                              </>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTicketTarget(t)}
+                              className="btn-ghost"
+                              style={{ padding: '6px 10px', color: '#ef4444' }}
+                              title="Delete ticket"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ══ Members view ══ */}
           {tab === 'members' && (
             <div style={{ maxWidth: 800 }}>
@@ -6064,6 +7156,329 @@ export default function ProjectDetailPage() {
           <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
             <button className="btn-ghost" onClick={() => setDeleteModuleTarget(null)} style={{ padding: '10px 20px' }}>Cancel</button>
             <button className="btn-primary" style={{ background: '#ef4444', padding: '10px 24px' }} onClick={confirmDeleteModule}>Delete Module</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ══ Create New Document Modal ══ */}
+      {showNewDocModal && (
+        <Modal title="Create New Document / Spec" onClose={() => setShowNewDocModal(false)} width={640}>
+          <form onSubmit={handleSaveNewDoc}>
+            <div style={{ marginBottom: 16 }}>
+              <FieldLabel>Document Title *</FieldLabel>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Product Requirements Document (PRD), Architecture Spec, Client Brief"
+                value={docTitle}
+                onChange={(e) => setDocTitle(e.target.value)}
+              />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <FieldLabel>Tags (press Enter or comma)</FieldLabel>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                {docTags.map((tg) => (
+                  <span
+                    key={tg}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      fontSize: 11,
+                      background: 'rgba(56, 189, 248, 0.15)',
+                      color: '#38bdf8',
+                      padding: '2px 8px',
+                      borderRadius: 12,
+                    }}
+                  >
+                    #{tg}
+                    <button
+                      type="button"
+                      onClick={() => setDocTags((prev) => prev.filter((t) => t !== tg))}
+                      style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', padding: 0 }}
+                    >
+                      <X size={10} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <input
+                type="text"
+                placeholder="Add tag and press Enter (e.g. prd, engineering, roadmap)"
+                value={docTagInput}
+                onChange={(e) => setDocTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    const clean = docTagInput.trim().replace(/^#/, '');
+                    if (clean && !docTags.includes(clean)) {
+                      setDocTags((prev) => [...prev, clean]);
+                    }
+                    setDocTagInput('');
+                  }
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}>
+                <input
+                  type="checkbox"
+                  checked={docIsPinned}
+                  onChange={(e) => setDocIsPinned(e.target.checked)}
+                />
+                <span>Pin this document to the top of the wiki list</span>
+              </label>
+            </div>
+
+            <div style={{ marginBottom: 24 }}>
+              <FieldLabel>Initial Markdown Content</FieldLabel>
+              <textarea
+                rows={8}
+                placeholder="Write your document overview, objectives, and details in Markdown..."
+                value={docContent}
+                onChange={(e) => setDocContent(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: 12,
+                  background: 'rgba(0,0,0,0.3)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: 8,
+                  color: 'var(--text-primary)',
+                  fontSize: 13,
+                  fontFamily: 'monospace',
+                  lineHeight: 1.5,
+                  resize: 'vertical',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setShowNewDocModal(false)}
+                style={{ padding: '10px 20px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={submittingDoc}
+                style={{ padding: '10px 24px', background: 'linear-gradient(135deg, #0284c7, #0369a1)' }}
+              >
+                {submittingDoc ? 'Creating…' : 'Create Document'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ══ Delete Document Modal ══ */}
+      {deleteDocTarget && (
+        <Modal title="Delete Document" onClose={() => setDeleteDocTarget(null)} width={420}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 14, fontFamily: 'Outfit, sans-serif', marginBottom: 28, lineHeight: 1.6 }}>
+            Are you sure you want to delete <strong style={{ color: 'var(--text-primary)' }}>{deleteDocTarget.title}</strong>? This action cannot be undone.
+          </p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+            <button className="btn-ghost" onClick={() => setDeleteDocTarget(null)} style={{ padding: '10px 20px' }}>Cancel</button>
+            <button className="btn-primary" style={{ background: '#ef4444', padding: '10px 24px' }} onClick={confirmDeleteDoc}>Delete Document</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ══ Convert Intake Ticket to Task Modal ══ */}
+      {convertTicketTarget && (
+        <Modal title="Convert Intake Ticket to Task" onClose={() => setConvertTicketTarget(null)} width={520}>
+          <form onSubmit={handleConvertTicketToTask}>
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '12px 14px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)', marginBottom: 20 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>
+                Converting Client Request
+              </div>
+              <div style={{ fontFamily: 'Fraunces, serif', fontSize: 16, color: 'var(--text-primary)', marginBottom: 4 }}>
+                {convertTicketTarget.title}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                Client: {convertTicketTarget.clientName} ({convertTicketTarget.clientEmail})
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+              <div>
+                <FieldLabel>Priority</FieldLabel>
+                <select
+                  value={convertPriority}
+                  onChange={(e) => setConvertPriority(e.target.value as TaskPriority)}
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </select>
+              </div>
+
+              <div>
+                <FieldLabel>Due Date</FieldLabel>
+                <input
+                  type="date"
+                  value={convertDueDate}
+                  onChange={(e) => setConvertDueDate(e.target.value)}
+                  style={{ colorScheme: 'dark', cursor: 'pointer' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+              <div>
+                <FieldLabel>Sprint Cycle</FieldLabel>
+                <select
+                  value={convertCycle}
+                  onChange={(e) => setConvertCycle(e.target.value)}
+                >
+                  <option value="">None / Backlog</option>
+                  {cycles.map((c) => (
+                    <option key={c._id} value={c._id}>
+                      {c.name} ({c.status})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <FieldLabel>Feature Module</FieldLabel>
+                <select
+                  value={convertModule}
+                  onChange={(e) => setConvertModule(e.target.value)}
+                >
+                  <option value="">None</option>
+                  {modules.map((m) => (
+                    <option key={m._id} value={m._id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 24 }}>
+              <FieldLabel>Assign Team Members</FieldLabel>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, maxHeight: 120, overflowY: 'auto' }}>
+                {members.map((m) => {
+                  const uid = m.user?._id;
+                  if (!uid) return null;
+                  const isAssigned = convertAssignees.includes(uid);
+                  return (
+                    <button
+                      type="button"
+                      key={uid}
+                      onClick={() => {
+                        setConvertAssignees((prev) =>
+                          isAssigned ? prev.filter((id) => id !== uid) : [...prev, uid]
+                        );
+                      }}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 20,
+                        fontSize: 12,
+                        fontFamily: 'Outfit, sans-serif',
+                        border: 'none',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        background: isAssigned ? 'rgba(249, 115, 22, 0.25)' : 'rgba(255,255,255,0.05)',
+                        color: isAssigned ? '#fb923c' : 'var(--text-secondary)',
+                      }}
+                    >
+                      {isAssigned && <Check size={12} />}
+                      <span>{m.user?.name || 'Member'}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setConvertTicketTarget(null)}
+                style={{ padding: '10px 20px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={submittingConvert}
+                style={{ padding: '10px 24px', background: 'linear-gradient(135deg, #f97316, #ea580c)' }}
+              >
+                {submittingConvert ? 'Converting…' : 'Convert to Task 🚀'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ══ Decline Ticket Modal ══ */}
+      {declineTicketTarget && (
+        <Modal title="Decline Client Ticket" onClose={() => setDeclineTicketTarget(null)} width={460}>
+          <form onSubmit={handleDeclineTicket}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13, fontFamily: 'Outfit, sans-serif', marginBottom: 16, lineHeight: 1.5 }}>
+              Are you sure you want to decline ticket from <strong style={{ color: 'var(--text-primary)' }}>{declineTicketTarget.clientName}</strong>? You can optionally provide a reason for internal reference.
+            </p>
+            <div style={{ marginBottom: 24 }}>
+              <FieldLabel>Internal Decline Reason (Optional)</FieldLabel>
+              <textarea
+                rows={3}
+                placeholder="e.g. Out of current roadmap scope, duplicate request, already resolved"
+                value={declineReason}
+                onChange={(e) => setDeclineReason(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: 10,
+                  background: 'rgba(0,0,0,0.3)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: 8,
+                  color: 'var(--text-primary)',
+                  fontSize: 13,
+                  resize: 'vertical',
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setDeclineTicketTarget(null)}
+                style={{ padding: '10px 20px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={submittingDecline}
+                style={{ padding: '10px 24px', background: '#ef4444' }}
+              >
+                {submittingDecline ? 'Declining…' : 'Confirm Decline'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ══ Delete Ticket Modal ══ */}
+      {deleteTicketTarget && (
+        <Modal title="Delete Intake Ticket" onClose={() => setDeleteTicketTarget(null)} width={420}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 14, fontFamily: 'Outfit, sans-serif', marginBottom: 28, lineHeight: 1.6 }}>
+            Are you sure you want to permanently delete this ticket? This action cannot be undone.
+          </p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+            <button className="btn-ghost" onClick={() => setDeleteTicketTarget(null)} style={{ padding: '10px 20px' }}>Cancel</button>
+            <button className="btn-primary" style={{ background: '#ef4444', padding: '10px 24px' }} onClick={confirmDeleteTicket}>Delete Ticket</button>
           </div>
         </Modal>
       )}

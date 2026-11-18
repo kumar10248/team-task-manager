@@ -356,6 +356,103 @@ export const modulesApi = {
   delete: (pid: string, mid: string) => del<{ success: boolean; message: string }>(`/projects/${pid}/modules/${mid}`),
 };
 
+// ─── Project Docs & Pages ─────────────────────────────────────────────────────
+
+export interface Doc {
+  _id: string;
+  title: string;
+  content: string;
+  project: string;
+  createdBy: User;
+  lastEditedBy?: User | null;
+  isPinned: boolean;
+  tags: string[];
+  access: 'members' | 'public_view';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateDocPayload {
+  title: string;
+  content?: string;
+  isPinned?: boolean;
+  tags?: string[];
+  access?: 'members' | 'public_view';
+}
+
+export const docsApi = {
+  list: (pid: string, params: { search?: string; tag?: string } = {}) => {
+    const qs = new URLSearchParams(params as Record<string, string>).toString();
+    return get<{ success: boolean; docs: Doc[] }>(`/projects/${pid}/docs${qs ? `?${qs}` : ''}`);
+  },
+  get: (pid: string, did: string) => get<{ success: boolean; doc: Doc }>(`/projects/${pid}/docs/${did}`),
+  create: (pid: string, d: CreateDocPayload) => post<{ success: boolean; doc: Doc }>(`/projects/${pid}/docs`, d),
+  update: (pid: string, did: string, d: Partial<CreateDocPayload>) =>
+    patch<{ success: boolean; doc: Doc }>(`/projects/${pid}/docs/${did}`, d),
+  delete: (pid: string, did: string) => del<{ success: boolean; message: string }>(`/projects/${pid}/docs/${did}`),
+};
+
+// ─── Client Intake / CRM Triage ───────────────────────────────────────────────
+
+export type TicketPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type TicketCategory = 'feature_request' | 'bug_report' | 'inquiry' | 'support';
+export type TicketStatus = 'pending_review' | 'accepted' | 'declined';
+
+export interface IntakeTicket {
+  _id: string;
+  title: string;
+  description: string;
+  project: string;
+  clientName: string;
+  clientEmail: string;
+  company?: string;
+  priority: TicketPriority;
+  category: TicketCategory;
+  status: TicketStatus;
+  declineReason?: string;
+  convertedToTask?: Task | { _id: string; title: string; status: TaskStatus; priority: TaskPriority } | null;
+  reviewedBy?: User | null;
+  reviewedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePublicTicketPayload {
+  title: string;
+  description: string;
+  clientName: string;
+  clientEmail: string;
+  company?: string;
+  priority?: TicketPriority;
+  category?: TicketCategory;
+}
+
+export interface ConvertTicketPayload {
+  priority?: TaskPriority;
+  assignedTo?: string | string[];
+  dueDate?: string;
+  cycle?: string;
+  module?: string;
+  customTitle?: string;
+  customDescription?: string;
+}
+
+export const intakeApi = {
+  getPublicInfo: (pid: string) =>
+    get<{ success: boolean; project: { _id: string; name: string; description?: string; color?: string } }>(`/intake/${pid}/info`),
+  submitPublic: (pid: string, d: CreatePublicTicketPayload) =>
+    post<{ success: boolean; message: string; ticket: { _id: string; title: string; createdAt: string } }>(`/intake/${pid}`, d),
+  list: (pid: string, params: { status?: TicketStatus; category?: TicketCategory; search?: string } = {}) => {
+    const qs = new URLSearchParams(params as Record<string, string>).toString();
+    return get<{ success: boolean; tickets: IntakeTicket[]; pendingCount: number }>(`/projects/${pid}/intake${qs ? `?${qs}` : ''}`);
+  },
+  updateStatus: (pid: string, tid: string, d: { status: 'accepted' | 'declined'; declineReason?: string }) =>
+    patch<{ success: boolean; ticket: IntakeTicket }>(`/projects/${pid}/intake/${tid}`, d),
+  convertToTask: (pid: string, tid: string, d: ConvertTicketPayload) =>
+    post<{ success: boolean; message: string; task: Task; ticket: IntakeTicket }>(`/projects/${pid}/intake/${tid}/convert`, d),
+  delete: (pid: string, tid: string) => del<{ success: boolean; message: string }>(`/projects/${pid}/intake/${tid}`),
+};
+
 export interface AttendanceLog {
   _id: string;
   user: User;
