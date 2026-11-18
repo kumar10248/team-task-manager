@@ -19,10 +19,13 @@ router.route('/')
 // Fast single-query user tasks
 router.get('/my-tasks', task.getMyTasks);
 
-// Invitations for current user
+// Invitations (incoming & sent)
 router.get('/invitations', project.getMyInvitations);
+router.get('/sent-invitations', project.getMySentInvitations);
 router.post('/invitations/:id/accept', project.acceptInvitation);
 router.post('/invitations/:id/decline', project.declineInvitation);
+router.delete('/invitations/:id', project.cancelInvitation);
+router.post('/invitations/:id/resend', project.resendInvitation);
 
 router.route('/:id')
   .get(project.getProject)
@@ -30,6 +33,9 @@ router.route('/:id')
   .delete(project.deleteProject);
 
 // Member management
+router.get('/:id/member-candidates', project.getMemberCandidates);
+router.get('/:id/invitations', project.getProjectInvitations);
+
 router.route('/:id/members')
   .post(project.addMember);
 

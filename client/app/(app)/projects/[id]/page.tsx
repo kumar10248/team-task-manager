@@ -7,12 +7,14 @@ import { projectsApi, tasksApi, meetingsApi, getPersonalizedMeetLink, cyclesApi,
 import type {
   Project, ProjectMember, Task, TaskStatus, TaskPriority, Comment, ChecklistItem,
   Meeting, User as ApiUser, Cycle, Module, CycleStatus, ModuleStatus,
-  Doc, CreateDocPayload, IntakeTicket, TicketPriority, TicketCategory, TicketStatus, ConvertTicketPayload
+  Doc, CreateDocPayload, IntakeTicket, TicketPriority, TicketCategory, TicketStatus, ConvertTicketPayload,
+  MemberCandidate, ProjectInvitation
 } from '@/lib/api';
 import { useTimer } from '@/lib/timer-context';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import Modal from '@/components/Model';
+import ConfirmModal from '@/components/ConfirmModal';
 import { BoardSkeleton } from '@/components/Skeletons';
 import { formatTimeAgo } from '@/lib/format';
 import { triggerConfetti } from '@/lib/confetti';
@@ -22,7 +24,8 @@ import {
   Search, X, User, Users, CheckSquare, Download, ExternalLink, Clock,
   Video, Calendar, Copy, Check, ChevronDown, ChevronUp, Lock,
   Zap, Package, Flag, AlertCircle, ArrowUpRight, Play, CheckCircle2, PauseCircle, Layers,
-  FileText, BookOpen, Inbox, Pin, PinOff, Sparkles, Building, Mail, Eye, Code, Quote, List, Share2
+  FileText, BookOpen, Inbox, Pin, PinOff, Sparkles, Building, Mail, Eye, Code, Quote, List, Share2, Ban,
+  Send, RefreshCw
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -2005,10 +2008,25 @@ export default function ProjectDetailPage() {
   // Modals
   const [showTaskModal, setShowTaskModal]       = useState(false);
   const [showMemberModal, setShowMemberModal]   = useState(false);
+  const [memberCandidates, setMemberCandidates]           = useState<MemberCandidate[]>([]);
+  const [loadingCandidates, setLoadingCandidates]         = useState(false);
+  const [candidateDropdownOpen, setCandidateDropdownOpen] = useState(false);
+  const [selectedCandidate, setSelectedCandidate]         = useState<MemberCandidate | null>(null);
+  const [memberSearchQuery, setMemberSearchQuery]         = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery]   = useState('');
+  const [isSearchingCandidates, setIsSearchingCandidates] = useState(false);
+  const candidateDropdownRef                              = useRef<HTMLDivElement>(null);
+  const [projectInvitations, setProjectInvitations]       = useState<ProjectInvitation[]>([]);
+  const [respondingInviteId, setRespondingInviteId]       = useState<string | null>(null);
   const [editingTask, setEditingTask]           = useState<Task | null>(null);   // null = create, Task = edit
   const [deleteTaskTarget, setDeleteTaskTarget] = useState<Task | null>(null);
   const [commentTask, setCommentTask]           = useState<Task | null>(null);
   const [editingMember, setEditingMember]       = useState<ProjectMember | null>(null);
+  const [removeMemberTarget, setRemoveMemberTarget] = useState<ProjectMember | null>(null);
+  const [cancelInviteTarget, setCancelInviteTarget] = useState<ProjectInvitation | null>(null);
+  const [deleteMeetingTarget, setDeleteMeetingTarget] = useState<string | null>(null);
+  const [deleteTagTarget, setDeleteTagTarget]   = useState<string | null>(null);
+  const [isDeletingItem, setIsDeletingItem]     = useState(false);
   const [isTagDeleteMode, setIsTagDeleteMode]   = useState(false);
 
   // Filters & Search
@@ -2044,13 +2062,14 @@ export default function ProjectDetailPage() {
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [pRes, tRes, cRes, mRes, dRes, iRes] = await Promise.all([
+      const [pRes, tRes, cRes, mRes, dRes, iRes, invRes] = await Promise.all([
         projectsApi.get(id),
         tasksApi.list(id, { limit: 1000 }),
         cyclesApi.list(id).catch(() => ({ success: false, cycles: [] })),
         modulesApi.list(id).catch(() => ({ success: false, modules: [] })),
         docsApi.list(id).catch(() => ({ success: false, docs: [] })),
         intakeApi.list(id).catch(() => ({ success: false, tickets: [], pendingCount: 0 })),
+        projectsApi.getProjectInvitations(id).catch(() => ({ success: false, invitations: [] })),
       ]);
       setProject(pRes.project);
       if (pRes.project?.tags) setProjectTags(pRes.project.tags);
@@ -2066,6 +2085,9 @@ export default function ProjectDetailPage() {
       if (iRes.success && iRes.tickets) {
         setIntakeTickets(iRes.tickets);
         setPendingTicketsCount(iRes.pendingCount || 0);
+      }
+      if (invRes?.success && invRes.invitations) {
+        setProjectInvitations(invRes.invitations);
       }
     } catch {
       if (!silent) {
@@ -2088,8 +2110,9 @@ export default function ProjectDetailPage() {
       modulesApi.list(id).catch(() => ({ success: false, modules: [] })),
       docsApi.list(id).catch(() => ({ success: false, docs: [] })),
       intakeApi.list(id).catch(() => ({ success: false, tickets: [], pendingCount: 0 })),
+      projectsApi.getProjectInvitations(id).catch(() => ({ success: false, invitations: [] })),
     ])
-      .then(([pRes, tRes, cRes, mRes, dRes, iRes]) => {
+      .then(([pRes, tRes, cRes, mRes, dRes, iRes, invRes]) => {
         if (!active) return;
         setProject(pRes.project);
         if (pRes.project?.tags) setProjectTags(pRes.project.tags);
@@ -2105,6 +2128,9 @@ export default function ProjectDetailPage() {
         if (iRes.success && iRes.tickets) {
           setIntakeTickets(iRes.tickets);
           setPendingTicketsCount(iRes.pendingCount || 0);
+        }
+        if (invRes?.success && invRes.invitations) {
+          setProjectInvitations(invRes.invitations);
         }
       })
       .catch(() => {
@@ -2145,6 +2171,11 @@ export default function ProjectDetailPage() {
               setIntakeTickets(iRes.tickets);
               setPendingTicketsCount(iRes.pendingCount || 0);
             }
+          })
+          .catch(console.error);
+        projectsApi.getProjectInvitations(id)
+          .then((invRes) => {
+            if (active && invRes.invitations) setProjectInvitations(invRes.invitations);
           })
           .catch(console.error);
       }
@@ -2236,15 +2267,24 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const handleDeleteProjectMeeting = async (meetingId: string) => {
-    if (!confirm('Are you sure you want to cancel this meeting?')) return;
+  const handleDeleteProjectMeeting = (meetingId: string) => {
+    setDeleteMeetingTarget(meetingId);
+  };
+
+  const confirmDeleteProjectMeeting = async () => {
+    if (!deleteMeetingTarget) return;
+    const meetingId = deleteMeetingTarget;
+    setIsDeletingItem(true);
     try {
       await meetingsApi.delete(meetingId);
       setProjectMeetings((prev) => prev.filter((m) => m._id !== meetingId));
       toast('Meeting cancelled', 'success');
+      setDeleteMeetingTarget(null);
     } catch (err) {
       console.error(err);
       toast('Failed to delete meeting', 'error');
+    } finally {
+      setIsDeletingItem(false);
     }
   };
 
@@ -2923,13 +2963,16 @@ export default function ProjectDetailPage() {
     }));
   };
 
-  const handleDeleteTaglineFromDb = async (tag: string) => {
+  const handleDeleteTaglineFromDb = (tag: string) => {
     const clean = tag.trim().replace(/^#/, '');
     if (!clean) return;
-    if (!confirm(`Are you sure you want to permanently delete tagline "${clean}" from this project's database?`)) {
-      return;
-    }
+    setDeleteTagTarget(clean);
+  };
 
+  const confirmDeleteTagline = async () => {
+    if (!deleteTagTarget) return;
+    const clean = deleteTagTarget;
+    setIsDeletingItem(true);
     try {
       const res = await projectsApi.deleteTag(id, clean);
       if (res.success) {
@@ -2960,9 +3003,12 @@ export default function ProjectDetailPage() {
           }))
         );
       }
+      setDeleteTagTarget(null);
     } catch (err) {
       console.error(err);
       toast(err instanceof Error ? err.message : 'Failed to delete tagline', 'error');
+    } finally {
+      setIsDeletingItem(false);
     }
   };
 
@@ -3127,23 +3173,158 @@ export default function ProjectDetailPage() {
 
   // ── Member helpers ──────────────────────────────────────────────────────────
 
+  const openAddMemberModal = () => {
+    setMemberForm({ email: '', role: 'member' });
+    setMemberSearchQuery('');
+    setDebouncedSearchQuery('');
+    setMemberCandidates([]);
+    setSelectedCandidate(null);
+    setCandidateDropdownOpen(false);
+    setShowMemberModal(true);
+  };
+
+  // Debounce member search query (300ms)
+  useEffect(() => {
+    if (!memberSearchQuery.trim()) {
+      setDebouncedSearchQuery('');
+      setMemberCandidates([]);
+      setCandidateDropdownOpen(false);
+      setIsSearchingCandidates(false);
+      return;
+    }
+    setIsSearchingCandidates(true);
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(memberSearchQuery.trim());
+      setIsSearchingCandidates(false);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [memberSearchQuery]);
+
+  // Fetch candidates from backend only when debounced query is present
+  useEffect(() => {
+    if (!debouncedSearchQuery || !showMemberModal) {
+      setMemberCandidates([]);
+      setCandidateDropdownOpen(false);
+      return;
+    }
+    let active = true;
+    setLoadingCandidates(true);
+    projectsApi.getCandidates(id, debouncedSearchQuery)
+      .then((res) => {
+        if (active && res.success && res.candidates) {
+          setMemberCandidates(res.candidates);
+          setCandidateDropdownOpen(true);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to search candidate members:', err);
+      })
+      .finally(() => {
+        if (active) setLoadingCandidates(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [id, debouncedSearchQuery, showMemberModal]);
+
+  // Close candidate dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (candidateDropdownRef.current && !candidateDropdownRef.current.contains(e.target as Node)) {
+        setCandidateDropdownOpen(false);
+      }
+    };
+    if (candidateDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [candidateDropdownOpen]);
+
+  const activeMatchedCandidate = useMemo(() => {
+    if (selectedCandidate) return selectedCandidate;
+    const query = memberForm.email.trim().toLowerCase();
+    if (!query) return null;
+    return memberCandidates.find((c) => c.email.toLowerCase() === query) || null;
+  }, [selectedCandidate, memberCandidates, memberForm.email]);
+
   const addMember = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!memberForm.email.trim()) return;
+
+    // Check if target user has privacy set to 'nobody'
+    const matched = memberCandidates.find(
+      (c) => c.email.toLowerCase() === memberForm.email.trim().toLowerCase()
+    );
+    if (matched && matched.projectAddPrivacy === 'nobody') {
+      toast(`${matched.name}'s privacy settings do not allow anyone to add them to projects.`, 'error');
+      return;
+    }
+    if (matched && matched.isAlreadyMember) {
+      toast(`${matched.name} is already a member of this project.`, 'error');
+      return;
+    }
+    if (matched && matched.isPendingInvitation) {
+      toast(`An invitation is already pending for ${matched.name}.`, 'error');
+      return;
+    }
+
     setSaving(true);
     try {
       const res = await projectsApi.addMember(id, memberForm);
       if (res.requiresApproval) {
         toast(res.message || 'Invitation request sent! They will be added once they accept.', 'success');
       } else {
-        toast('Member added successfully', 'success');
+        toast('Member added successfully! 🎉', 'success');
       }
       setShowMemberModal(false);
       setMemberForm({ email: '', role: 'member' });
+      setMemberSearchQuery('');
+      setDebouncedSearchQuery('');
+      setSelectedCandidate(null);
+      setMemberCandidates([]);
+      setCandidateDropdownOpen(false);
       await load();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to add member', 'error');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCancelProjectInvite = (invId: string) => {
+    const inv = projectInvitations.find((i) => i._id === invId);
+    if (inv) setCancelInviteTarget(inv);
+  };
+
+  const confirmCancelProjectInvite = async () => {
+    if (!cancelInviteTarget) return;
+    const invId = cancelInviteTarget._id;
+    setRespondingInviteId(invId);
+    setIsDeletingItem(true);
+    try {
+      await projectsApi.cancelInvitation(invId);
+      toast('Invitation revoked successfully', 'success');
+      setProjectInvitations((prev) => prev.filter((i) => i._id !== invId));
+      setCancelInviteTarget(null);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to cancel invitation', 'error');
+    } finally {
+      setRespondingInviteId(null);
+      setIsDeletingItem(false);
+    }
+  };
+
+  const handleResendProjectInvite = async (invId: string) => {
+    setRespondingInviteId(invId);
+    try {
+      await projectsApi.resendInvitation(invId);
+      toast('Invitation reminder notification sent! ✉️', 'success');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to resend invitation', 'error');
+    } finally {
+      setRespondingInviteId(null);
     }
   };
 
@@ -3169,17 +3350,31 @@ export default function ProjectDetailPage() {
   };
 
   const removeMember = async (uid: string) => {
+    const mem = members.find((m) => m.user?._id === uid);
+    if (mem) {
+      setRemoveMemberTarget(mem);
+    }
+  };
+
+  const confirmRemoveMember = async () => {
+    if (!removeMemberTarget) return;
+    const uid = removeMemberTarget.user._id;
     const ownerId = typeof project?.createdBy === 'object' ? project?.createdBy?._id : project?.createdBy;
     if (uid === ownerId) {
       toast('The project creator/owner cannot be removed from the project', 'error');
+      setRemoveMemberTarget(null);
       return;
     }
+    setIsDeletingItem(true);
     try {
       await projectsApi.removeMember(id, uid);
-      toast('Member removed');
+      toast('Member removed successfully');
+      setRemoveMemberTarget(null);
       await load();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to remove', 'error');
+    } finally {
+      setIsDeletingItem(false);
     }
   };
 
@@ -4005,7 +4200,7 @@ export default function ProjectDetailPage() {
                 )}
                 {myRole === 'admin' && project?.hasActiveSubscription !== false && (
                   <>
-                    <button className="btn-ghost" onClick={() => setShowMemberModal(true)} style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button className="btn-ghost" onClick={openAddMemberModal} style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 8 }}>
                       <UserPlus size={16} /> Add Member
                     </button>
                     <button className="btn-primary" onClick={openCreateTask} style={{ padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -6303,7 +6498,27 @@ export default function ProjectDetailPage() {
 
           {/* ══ Members view ══ */}
           {tab === 'members' && (
-            <div style={{ maxWidth: 800 }}>
+            <div style={{ maxWidth: 850 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+                <div>
+                  <h4 style={{ fontFamily: 'Fraunces, serif', fontSize: 22, color: 'var(--text-primary)', margin: 0 }}>
+                    Team Members ({members.length})
+                  </h4>
+                  <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 13, fontFamily: 'Outfit, sans-serif' }}>
+                    Manage project access and role permissions for your team.
+                  </p>
+                </div>
+                {myRole === 'admin' && project?.hasActiveSubscription !== false && (
+                  <button
+                    type="button"
+                    onClick={openAddMemberModal}
+                    className="btn-primary"
+                    style={{ padding: '8px 18px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                  >
+                    <UserPlus size={15} /> Add Member
+                  </button>
+                )}
+              </div>
               {members.map((m) => {
                 const ownerId = typeof project?.createdBy === 'object' ? project?.createdBy?._id : project?.createdBy;
                 const isMemberOwner = Boolean(ownerId && m.user?._id === ownerId);
@@ -6376,7 +6591,7 @@ export default function ProjectDetailPage() {
                           <Pencil size={16} />
                         </button>
                         <button
-                          onClick={() => removeMember(m.user._id)}
+                          onClick={() => setRemoveMemberTarget(m)}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 8, borderRadius: 8, transition: 'all 0.2s' }}
                           onMouseEnter={(e) => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(248, 113, 113, 0.1)'; }}
                           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
@@ -6389,6 +6604,129 @@ export default function ProjectDetailPage() {
                   </div>
                 );
               })}
+
+              {/* ── Pending Sent Invitations (Admin only) ── */}
+              {myRole === 'admin' && projectInvitations.length > 0 && (
+                <div style={{ marginTop: 36, paddingTop: 24, borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(249, 115, 22, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fb923c' }}>
+                        <Send size={15} />
+                      </div>
+                      <h4 style={{ fontFamily: 'Fraunces, serif', fontSize: 18, color: 'var(--text-primary)', margin: 0 }}>
+                        Pending Sent Invitations ({projectInvitations.length})
+                      </h4>
+                    </div>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      Awaiting member acceptance
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {projectInvitations.map((inv) => {
+                      const inviteeName = typeof inv.user === 'object' && inv.user ? inv.user.name : 'User';
+                      const inviteeEmail = typeof inv.user === 'object' && inv.user ? inv.user.email : '';
+                      const isActing = respondingInviteId === inv._id;
+
+                      return (
+                        <div
+                          key={inv._id}
+                          style={{
+                            background: 'rgba(249, 115, 22, 0.04)',
+                            border: '1px dashed rgba(249, 115, 22, 0.25)',
+                            borderRadius: 12,
+                            padding: '14px 20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: 12,
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                            <div
+                              style={{
+                                width: 40,
+                                height: 40,
+                                borderRadius: '50%',
+                                background: 'rgba(249, 115, 22, 0.15)',
+                                color: '#fb923c',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 15,
+                                fontWeight: 600,
+                                overflow: 'hidden',
+                              }}
+                            >
+                              {typeof inv.user === 'object' && inv.user?.avatar ? (
+                                <img src={inv.user.avatar} alt={inviteeName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              ) : (
+                                inviteeName.charAt(0).toUpperCase()
+                              )}
+                            </div>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'Outfit, sans-serif' }}>
+                                  {inviteeName}
+                                </span>
+                                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(255, 255, 255, 0.06)', color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
+                                  Role: {inv.role}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'Outfit, sans-serif' }}>
+                                {inviteeEmail}
+                              </div>
+                              <div style={{ fontSize: 11, color: '#facc15', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span>⏳ Awaiting acceptance</span> • Sent on {new Date(inv.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <button
+                              type="button"
+                              onClick={() => handleResendProjectInvite(inv._id)}
+                              disabled={isActing}
+                              className="btn-ghost"
+                              style={{
+                                padding: '6px 12px',
+                                fontSize: 12,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                color: '#fb923c',
+                                border: '1px solid rgba(249, 115, 22, 0.3)',
+                              }}
+                              title="Send reminder notification"
+                            >
+                              <RefreshCw size={12} className={isActing ? 'animate-spin' : ''} /> Resend Reminder
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setCancelInviteTarget(inv)}
+                              disabled={isActing}
+                              className="btn-ghost"
+                              style={{
+                                padding: '6px 12px',
+                                fontSize: 12,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                color: '#f87171',
+                                border: '1px solid rgba(239, 68, 68, 0.3)',
+                              }}
+                              title="Revoke / cancel this invitation"
+                            >
+                              <Trash2 size={12} /> Cancel Invite
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -6622,21 +6960,490 @@ export default function ProjectDetailPage() {
 
       {/* ══ Add Member Modal ══ */}
       {showMemberModal && (
-        <Modal title="Add Member" onClose={() => setShowMemberModal(false)} width={420}>
+        <Modal title="Add Member to Project" onClose={() => setShowMemberModal(false)} width={480}>
           <form onSubmit={addMember}>
-            <div style={{ marginBottom: 20 }}>
-              <FieldLabel>Email Address</FieldLabel>
-              <input type="email" required placeholder="member@company.com" value={memberForm.email} onChange={(e) => setMemberForm({ ...memberForm, email: e.target.value })} />
+            <div style={{ marginBottom: 20, position: 'relative' }} ref={candidateDropdownRef}>
+              <FieldLabel>Member Email or Name</FieldLabel>
+              <div style={{ position: 'relative' }}>
+                <Search
+                  size={15}
+                  style={{
+                    position: 'absolute',
+                    left: 12,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: 'var(--text-muted)',
+                    pointerEvents: 'none',
+                  }}
+                />
+                <input
+                  type="email"
+                  required
+                  autoComplete="off"
+                  placeholder="Type name or email to search members..."
+                  value={memberSearchQuery}
+                  onFocus={() => {
+                    if (memberSearchQuery.trim() && memberCandidates.length > 0) {
+                      setCandidateDropdownOpen(true);
+                    }
+                  }}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setMemberSearchQuery(val);
+                    setMemberForm({ ...memberForm, email: val });
+                    if (selectedCandidate && selectedCandidate.email.toLowerCase() !== val.trim().toLowerCase()) {
+                      setSelectedCandidate(null);
+                    }
+                  }}
+                  style={{
+                    paddingLeft: 36,
+                    paddingRight: memberSearchQuery ? 36 : 12,
+                    borderColor: activeMatchedCandidate?.projectAddPrivacy === 'nobody' ? '#ef4444' : undefined,
+                  }}
+                />
+                {memberSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMemberSearchQuery('');
+                      setDebouncedSearchQuery('');
+                      setMemberForm({ ...memberForm, email: '' });
+                      setSelectedCandidate(null);
+                      setMemberCandidates([]);
+                      setCandidateDropdownOpen(false);
+                    }}
+                    style={{
+                      position: 'absolute',
+                      right: 10,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                      padding: 2,
+                    }}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              {/* Dropdown Menu - only visible when user has typed text */}
+              {candidateDropdownOpen && memberSearchQuery.trim().length > 0 && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    left: 0,
+                    right: 0,
+                    zIndex: 200,
+                    background: '#121318',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    borderRadius: 12,
+                    boxShadow: '0 12px 36px rgba(0,0,0,0.7)',
+                    maxHeight: 250,
+                    overflowY: 'auto',
+                    padding: 6,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                  }}
+                >
+                  {(isSearchingCandidates || loadingCandidates) ? (
+                    <div style={{ padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--text-muted)', fontSize: 12 }}>
+                      <Clock size={13} className="animate-spin" />
+                      <span>Searching team members…</span>
+                    </div>
+                  ) : memberCandidates.length === 0 ? (
+                    <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>
+                      No members found matching &ldquo;<strong style={{ color: 'var(--text-primary)' }}>{debouncedSearchQuery || memberSearchQuery}</strong>&rdquo;
+                    </div>
+                  ) : (
+                    memberCandidates.map((c) => {
+                      const isNobody = c.projectAddPrivacy === 'nobody';
+                      const isRequest = c.projectAddPrivacy === 'request';
+                      const isMember = c.isAlreadyMember;
+                      const isPending = c.isPendingInvitation;
+                      const isDisabled = isNobody || isMember || isPending;
+
+                      return (
+                        <div
+                          key={c._id}
+                          onClick={() => {
+                            if (isNobody) {
+                              toast(`${c.name}'s privacy settings do not allow anyone to add them to projects.`, 'error');
+                              return;
+                            }
+                            if (isMember) {
+                              toast(`${c.name} is already a member of this project.`, 'error');
+                              return;
+                            }
+                            if (isPending) {
+                              toast(`An invitation request is already pending for ${c.name}.`, 'error');
+                              return;
+                            }
+                            setMemberForm({ ...memberForm, email: c.email });
+                            setMemberSearchQuery(c.email);
+                            setSelectedCandidate(c);
+                            setCandidateDropdownOpen(false);
+                          }}
+                          style={{
+                            padding: '8px 12px',
+                            borderRadius: 8,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 10,
+                            cursor: isDisabled ? 'not-allowed' : 'pointer',
+                            opacity: isDisabled ? (isNobody ? 0.75 : 0.45) : 1,
+                            background: isNobody
+                              ? 'rgba(239, 68, 68, 0.05)'
+                              : 'transparent',
+                            border: isNobody
+                              ? '1px dashed rgba(239, 68, 68, 0.35)'
+                              : '1px solid transparent',
+                            transition: 'all 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isDisabled) {
+                              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
+                            } else if (isNobody) {
+                              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.12)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isDisabled) {
+                              e.currentTarget.style.background = 'transparent';
+                            } else if (isNobody) {
+                              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.05)';
+                            }
+                          }}
+                          title={
+                            isNobody
+                              ? `${c.name} does not allow project additions (Privacy: Nobody)`
+                              : isMember
+                              ? `${c.name} is already in this project`
+                              : isPending
+                              ? `Invitation pending for ${c.name}`
+                              : `Add ${c.name} (${c.email})`
+                          }
+                        >
+                          {/* User Avatar & Info */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                            <div
+                              style={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: '50%',
+                                background: isNobody
+                                  ? 'rgba(239, 68, 68, 0.2)'
+                                  : 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 13,
+                                fontWeight: 600,
+                                color: isNobody ? '#f87171' : '#fff',
+                                flexShrink: 0,
+                                overflow: 'hidden',
+                              }}
+                            >
+                              {c.avatar ? (
+                                <img src={c.avatar} alt={c.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              ) : (
+                                c.name.charAt(0).toUpperCase()
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                              <span
+                                style={{
+                                  fontSize: 13,
+                                  fontWeight: 500,
+                                  color: isNobody ? '#fca5a5' : 'var(--text-primary)',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                              >
+                                {c.name}
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  color: isNobody ? '#f87171' : 'var(--text-secondary)',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                              >
+                                {c.email}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Privacy / Membership Badge */}
+                          <div style={{ flexShrink: 0 }}>
+                            {isMember ? (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  fontSize: 10,
+                                  color: 'var(--text-muted)',
+                                  background: 'rgba(255,255,255,0.06)',
+                                  padding: '2px 8px',
+                                  borderRadius: 12,
+                                  cursor: 'not-allowed',
+                                }}
+                              >
+                                Already Member
+                              </span>
+                            ) : isPending ? (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  fontSize: 10,
+                                  color: '#facc15',
+                                  background: 'rgba(234, 179, 8, 0.15)',
+                                  padding: '2px 8px',
+                                  borderRadius: 12,
+                                  cursor: 'not-allowed',
+                                }}
+                              >
+                                Invite Pending
+                              </span>
+                            ) : isNobody ? (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  color: '#f87171',
+                                  background: 'rgba(239, 68, 68, 0.2)',
+                                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                                  padding: '2px 8px',
+                                  borderRadius: 12,
+                                  cursor: 'not-allowed',
+                                }}
+                              >
+                                <Ban size={11} color="#f87171" /> Blocked (Nobody)
+                              </span>
+                            ) : isRequest ? (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  fontSize: 10,
+                                  fontWeight: 500,
+                                  color: '#fb923c',
+                                  background: 'rgba(249, 115, 22, 0.15)',
+                                  border: '1px solid rgba(249, 115, 22, 0.3)',
+                                  padding: '2px 8px',
+                                  borderRadius: 12,
+                                }}
+                              >
+                                <Mail size={11} color="#fb923c" /> Requires Request
+                              </span>
+                            ) : (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  fontSize: 10,
+                                  fontWeight: 500,
+                                  color: '#34d399',
+                                  background: 'rgba(16, 185, 129, 0.15)',
+                                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                                  padding: '2px 8px',
+                                  borderRadius: 12,
+                                }}
+                              >
+                                <Check size={11} color="#34d399" /> Direct Add
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              {/* Selected User Feedback / Callout Banner */}
+              {activeMatchedCandidate && (
+                <div style={{ marginTop: 10 }}>
+                  {activeMatchedCandidate.projectAddPrivacy === 'nobody' ? (
+                    <div
+                      style={{
+                        padding: '10px 14px',
+                        borderRadius: 10,
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        border: '1px solid rgba(239, 68, 68, 0.35)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        color: '#f87171',
+                        fontSize: 12,
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      <Ban size={18} color="#ef4444" style={{ flexShrink: 0 }} />
+                      <div>
+                        <strong style={{ color: '#fca5a5' }}>Cannot be added:</strong> {activeMatchedCandidate.name}'s privacy preference is set to <strong>Nobody</strong>. They do not allow anyone to add them to projects.
+                      </div>
+                    </div>
+                  ) : activeMatchedCandidate.isAlreadyMember ? (
+                    <div
+                      style={{
+                        padding: '10px 14px',
+                        borderRadius: 10,
+                        background: 'rgba(255, 255, 255, 0.04)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        color: 'var(--text-secondary)',
+                        fontSize: 12,
+                      }}
+                    >
+                      <Users size={16} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                      <div>
+                        {activeMatchedCandidate.name} is already a member of this project.
+                      </div>
+                    </div>
+                  ) : activeMatchedCandidate.isPendingInvitation ? (
+                    <div
+                      style={{
+                        padding: '10px 14px',
+                        borderRadius: 10,
+                        background: 'rgba(234, 179, 8, 0.1)',
+                        border: '1px solid rgba(234, 179, 8, 0.3)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        color: '#facc15',
+                        fontSize: 12,
+                      }}
+                    >
+                      <Mail size={16} color="#facc15" style={{ flexShrink: 0 }} />
+                      <div>
+                        An invitation request is already pending for {activeMatchedCandidate.name}.
+                      </div>
+                    </div>
+                  ) : activeMatchedCandidate.projectAddPrivacy === 'request' ? (
+                    <div
+                      style={{
+                        padding: '10px 14px',
+                        borderRadius: 10,
+                        background: 'rgba(249, 115, 22, 0.1)',
+                        border: '1px solid rgba(249, 115, 22, 0.3)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        color: '#fb923c',
+                        fontSize: 12,
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      <Mail size={16} color="#fb923c" style={{ flexShrink: 0 }} />
+                      <div>
+                        <strong>Invitation Required:</strong> {activeMatchedCandidate.name} requires approval. Submitting will send an invitation request to their notifications.
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        padding: '10px 14px',
+                        borderRadius: 10,
+                        background: 'rgba(16, 185, 129, 0.08)',
+                        border: '1px solid rgba(16, 185, 129, 0.25)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        color: '#34d399',
+                        fontSize: 12,
+                      }}
+                    >
+                      <Check size={16} color="#34d399" style={{ flexShrink: 0 }} />
+                      <div>
+                        <strong>Direct Addition:</strong> {activeMatchedCandidate.name} will be added directly to this project.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+
             <div style={{ marginBottom: 32 }}>
               <FieldLabel>Role</FieldLabel>
               <select value={memberForm.role} onChange={(e) => setMemberForm({ ...memberForm, role: e.target.value as 'admin' | 'member' })}>
                 {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
+
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-              <button type="button" className="btn-ghost" onClick={() => setShowMemberModal(false)} style={{ padding: '10px 20px' }}>Cancel</button>
-              <button type="submit" className="btn-primary" disabled={saving} style={{ padding: '10px 24px' }}>{saving ? 'Adding…' : 'Add Member'}</button>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setShowMemberModal(false)}
+                style={{ padding: '10px 20px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={
+                  saving ||
+                  !memberForm.email.trim() ||
+                  activeMatchedCandidate?.projectAddPrivacy === 'nobody' ||
+                  activeMatchedCandidate?.isAlreadyMember ||
+                  activeMatchedCandidate?.isPendingInvitation
+                }
+                style={{
+                  padding: '10px 24px',
+                  cursor:
+                    activeMatchedCandidate?.projectAddPrivacy === 'nobody' ||
+                    activeMatchedCandidate?.isAlreadyMember ||
+                    activeMatchedCandidate?.isPendingInvitation
+                      ? 'not-allowed'
+                      : 'pointer',
+                  background:
+                    activeMatchedCandidate?.projectAddPrivacy === 'nobody'
+                      ? 'rgba(239, 68, 68, 0.2)'
+                      : activeMatchedCandidate?.projectAddPrivacy === 'request'
+                      ? 'linear-gradient(135deg, #f97316, #ea580c)'
+                      : undefined,
+                  border:
+                    activeMatchedCandidate?.projectAddPrivacy === 'nobody'
+                      ? '1px solid rgba(239, 68, 68, 0.4)'
+                      : undefined,
+                  color:
+                    activeMatchedCandidate?.projectAddPrivacy === 'nobody'
+                      ? '#f87171'
+                      : undefined,
+                }}
+              >
+                {saving
+                  ? 'Processing…'
+                  : activeMatchedCandidate?.projectAddPrivacy === 'nobody'
+                  ? 'Cannot Add (Blocked by Privacy)'
+                  : activeMatchedCandidate?.isAlreadyMember
+                  ? 'Already a Member'
+                  : activeMatchedCandidate?.isPendingInvitation
+                  ? 'Invitation Already Sent'
+                  : activeMatchedCandidate?.projectAddPrivacy === 'request'
+                  ? 'Send Invitation Request ✉️'
+                  : 'Add Member Directly'}
+              </button>
             </div>
           </form>
         </Modal>
@@ -6677,17 +7484,21 @@ export default function ProjectDetailPage() {
       )}
       
       {/* ══ Delete Task Target Modal ══ */}
-      {deleteTaskTarget && (
-        <Modal title="Delete Task" onClose={() => setDeleteTaskTarget(null)} width={420}>
-          <p style={{ color:'var(--text-secondary)', fontSize: 14, fontFamily: 'Outfit, sans-serif', marginBottom: 28, lineHeight: 1.6 }}>
-            Are you sure you want to delete <strong style={{ color:'var(--text-primary)' }}>{deleteTaskTarget.title}</strong>? This action cannot be undone.
-          </p>
-          <div style={{ display:'flex', gap: 12, justifyContent:'flex-end' }}>
-            <button className="btn-ghost" onClick={() => setDeleteTaskTarget(null)} style={{ padding: '10px 20px' }}>Cancel</button>
-            <button className="btn-primary" style={{ background: '#ef4444', padding: '10px 24px' }} onClick={confirmDeleteTask}>Delete</button>
-          </div>
-        </Modal>
-      )}
+      <ConfirmModal
+        isOpen={Boolean(deleteTaskTarget)}
+        title="Delete Task"
+        confirmText="Delete Task"
+        variant="danger"
+        iconType="trash"
+        isLoading={isDeletingItem}
+        onClose={() => setDeleteTaskTarget(null)}
+        onConfirm={confirmDeleteTask}
+        message={
+          <>
+            Are you sure you want to delete <strong style={{ color: 'var(--text-primary)' }}>{deleteTaskTarget?.title}</strong>? This action cannot be undone.
+          </>
+        }
+      />
 
       {/* ══ Schedule Project Meeting Modal ══ */}
       {showProjectMeetingModal && (
@@ -7030,17 +7841,21 @@ export default function ProjectDetailPage() {
       )}
 
       {/* ══ Delete Cycle Target Modal ══ */}
-      {deleteCycleTarget && (
-        <Modal title="Delete Sprint Cycle" onClose={() => setDeleteCycleTarget(null)} width={420}>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 14, fontFamily: 'Outfit, sans-serif', marginBottom: 28, lineHeight: 1.6 }}>
-            Are you sure you want to delete <strong style={{ color: 'var(--text-primary)' }}>{deleteCycleTarget.name}</strong>? Tasks assigned to this sprint will be returned to the backlog.
-          </p>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-            <button className="btn-ghost" onClick={() => setDeleteCycleTarget(null)} style={{ padding: '10px 20px' }}>Cancel</button>
-            <button className="btn-primary" style={{ background: '#ef4444', padding: '10px 24px' }} onClick={confirmDeleteCycle}>Delete Sprint</button>
-          </div>
-        </Modal>
-      )}
+      <ConfirmModal
+        isOpen={Boolean(deleteCycleTarget)}
+        title="Delete Sprint Cycle"
+        confirmText="Delete Sprint"
+        variant="danger"
+        iconType="trash"
+        isLoading={isDeletingItem}
+        onClose={() => setDeleteCycleTarget(null)}
+        onConfirm={confirmDeleteCycle}
+        message={
+          <>
+            Are you sure you want to delete <strong style={{ color: 'var(--text-primary)' }}>{deleteCycleTarget?.name}</strong>? Tasks assigned to this sprint will be safely returned to the project backlog.
+          </>
+        }
+      />
 
       {/* ══ Create / Edit Feature Module Modal ══ */}
       {showModuleModal && (
@@ -7148,17 +7963,21 @@ export default function ProjectDetailPage() {
       )}
 
       {/* ══ Delete Module Target Modal ══ */}
-      {deleteModuleTarget && (
-        <Modal title="Delete Feature Module" onClose={() => setDeleteModuleTarget(null)} width={420}>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 14, fontFamily: 'Outfit, sans-serif', marginBottom: 28, lineHeight: 1.6 }}>
-            Are you sure you want to delete <strong style={{ color: 'var(--text-primary)' }}>{deleteModuleTarget.name}</strong>? Tasks assigned to this module will remain intact but will be detached from this module.
-          </p>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-            <button className="btn-ghost" onClick={() => setDeleteModuleTarget(null)} style={{ padding: '10px 20px' }}>Cancel</button>
-            <button className="btn-primary" style={{ background: '#ef4444', padding: '10px 24px' }} onClick={confirmDeleteModule}>Delete Module</button>
-          </div>
-        </Modal>
-      )}
+      <ConfirmModal
+        isOpen={Boolean(deleteModuleTarget)}
+        title="Delete Feature Module"
+        confirmText="Delete Module"
+        variant="danger"
+        iconType="trash"
+        isLoading={isDeletingItem}
+        onClose={() => setDeleteModuleTarget(null)}
+        onConfirm={confirmDeleteModule}
+        message={
+          <>
+            Are you sure you want to delete <strong style={{ color: 'var(--text-primary)' }}>{deleteModuleTarget?.name}</strong>? Tasks assigned to this module will remain intact and will be detached from this module.
+          </>
+        }
+      />
 
       {/* ══ Create New Document Modal ══ */}
       {showNewDocModal && (
@@ -7277,17 +8096,21 @@ export default function ProjectDetailPage() {
       )}
 
       {/* ══ Delete Document Modal ══ */}
-      {deleteDocTarget && (
-        <Modal title="Delete Document" onClose={() => setDeleteDocTarget(null)} width={420}>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 14, fontFamily: 'Outfit, sans-serif', marginBottom: 28, lineHeight: 1.6 }}>
-            Are you sure you want to delete <strong style={{ color: 'var(--text-primary)' }}>{deleteDocTarget.title}</strong>? This action cannot be undone.
-          </p>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-            <button className="btn-ghost" onClick={() => setDeleteDocTarget(null)} style={{ padding: '10px 20px' }}>Cancel</button>
-            <button className="btn-primary" style={{ background: '#ef4444', padding: '10px 24px' }} onClick={confirmDeleteDoc}>Delete Document</button>
-          </div>
-        </Modal>
-      )}
+      <ConfirmModal
+        isOpen={Boolean(deleteDocTarget)}
+        title="Delete Document"
+        confirmText="Delete Document"
+        variant="danger"
+        iconType="trash"
+        isLoading={isDeletingItem}
+        onClose={() => setDeleteDocTarget(null)}
+        onConfirm={confirmDeleteDoc}
+        message={
+          <>
+            Are you sure you want to delete <strong style={{ color: 'var(--text-primary)' }}>{deleteDocTarget?.title}</strong>? This action cannot be undone.
+          </>
+        }
+      />
 
       {/* ══ Convert Intake Ticket to Task Modal ══ */}
       {convertTicketTarget && (
@@ -7471,17 +8294,91 @@ export default function ProjectDetailPage() {
       )}
 
       {/* ══ Delete Ticket Modal ══ */}
-      {deleteTicketTarget && (
-        <Modal title="Delete Intake Ticket" onClose={() => setDeleteTicketTarget(null)} width={420}>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 14, fontFamily: 'Outfit, sans-serif', marginBottom: 28, lineHeight: 1.6 }}>
-            Are you sure you want to permanently delete this ticket? This action cannot be undone.
-          </p>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-            <button className="btn-ghost" onClick={() => setDeleteTicketTarget(null)} style={{ padding: '10px 20px' }}>Cancel</button>
-            <button className="btn-primary" style={{ background: '#ef4444', padding: '10px 24px' }} onClick={confirmDeleteTicket}>Delete Ticket</button>
-          </div>
-        </Modal>
-      )}
+      <ConfirmModal
+        isOpen={Boolean(deleteTicketTarget)}
+        title="Delete Intake Ticket"
+        confirmText="Delete Ticket"
+        variant="danger"
+        iconType="trash"
+        isLoading={isDeletingItem}
+        onClose={() => setDeleteTicketTarget(null)}
+        onConfirm={confirmDeleteTicket}
+        message={
+          <>
+            Are you sure you want to permanently delete this client request ticket? This action cannot be undone.
+          </>
+        }
+      />
+
+      {/* ══ Remove Project Member Confirmation Card ══ */}
+      <ConfirmModal
+        isOpen={Boolean(removeMemberTarget)}
+        title="Remove Member from Project"
+        confirmText="Remove Member"
+        variant="danger"
+        iconType="user-minus"
+        isLoading={isDeletingItem}
+        onClose={() => setRemoveMemberTarget(null)}
+        onConfirm={confirmRemoveMember}
+        message={
+          <>
+            Are you sure you want to remove <strong style={{ color: 'var(--text-primary)' }}>{removeMemberTarget?.user?.name || removeMemberTarget?.user?.email}</strong> from <strong style={{ color: 'var(--text-primary)' }}>{project?.name}</strong>?
+            They will immediately lose access to all task boards, sprint cycles, documents, and meetings in this project.
+          </>
+        }
+      />
+
+      {/* ══ Cancel Project Invitation Confirmation Card ══ */}
+      <ConfirmModal
+        isOpen={Boolean(cancelInviteTarget)}
+        title="Cancel Project Invitation"
+        confirmText="Cancel Invitation"
+        variant="danger"
+        iconType="user-minus"
+        isLoading={isDeletingItem}
+        onClose={() => setCancelInviteTarget(null)}
+        onConfirm={confirmCancelProjectInvite}
+        message={
+          <>
+            Are you sure you want to cancel the pending invitation sent to <strong style={{ color: 'var(--text-primary)' }}>{cancelInviteTarget?.user?.name || cancelInviteTarget?.user?.email || 'this user'}</strong>?
+            They will no longer be able to join using this invitation.
+          </>
+        }
+      />
+
+      {/* ══ Cancel Meeting Confirmation Card ══ */}
+      <ConfirmModal
+        isOpen={Boolean(deleteMeetingTarget)}
+        title="Cancel Meeting"
+        confirmText="Cancel Meeting"
+        variant="danger"
+        iconType="trash"
+        isLoading={isDeletingItem}
+        onClose={() => setDeleteMeetingTarget(null)}
+        onConfirm={confirmDeleteProjectMeeting}
+        message={
+          <>
+            Are you sure you want to cancel this scheduled meeting? The meeting link will be deactivated and participants will see it removed from the project calendar.
+          </>
+        }
+      />
+
+      {/* ══ Delete Tagline Confirmation Card ══ */}
+      <ConfirmModal
+        isOpen={Boolean(deleteTagTarget)}
+        title="Delete Tagline"
+        confirmText="Delete Tag"
+        variant="danger"
+        iconType="trash"
+        isLoading={isDeletingItem}
+        onClose={() => setDeleteTagTarget(null)}
+        onConfirm={confirmDeleteTagline}
+        message={
+          <>
+            Are you sure you want to permanently delete the tagline <strong style={{ color: 'var(--text-primary)' }}>#{deleteTagTarget}</strong> from this project's database? It will be removed from all assigned tasks.
+          </>
+        }
+      />
     </div>
   );
 }

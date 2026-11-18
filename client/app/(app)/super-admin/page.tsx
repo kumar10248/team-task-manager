@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth-context';
 import { adminApi, AdminMetrics, AdminUser, AdminProject } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
+import ConfirmModal from '@/components/ConfirmModal';
 import {
   Crown, Users, FolderKanban, TrendingUp, ShieldCheck,
   Search, RefreshCw, Sparkles, Clock, CheckCircle2,
@@ -32,6 +33,21 @@ export default function SuperAdminPage() {
   // Edit Plan Modal
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<'standard' | 'pro' | 'free'>('pro');
+
+  // Confirmation Card State
+  const [confirmModalConfig, setConfirmModalConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: React.ReactNode;
+    confirmText?: string;
+    variant?: 'danger' | 'warning' | 'primary';
+    onConfirm: () => void | Promise<void>;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -70,22 +86,35 @@ export default function SuperAdminPage() {
   }, [user, authLoading, router, loadData]);
 
   // Handle Subscription Overrides
-  const handleGrantLifetime = async (u: AdminUser) => {
-    if (!confirm(`Grant permanent LIFETIME PRO access to ${u.name} (${u.email})? They will never expire and never be charged.`)) {
-      return;
-    }
-    setActionLoading(u._id);
-    try {
-      const res = await adminApi.updateSubscription(u._id, { action: 'grant_lifetime' });
-      if (res.success) {
-        toast(`👑 Lifetime Pro VIP access granted to ${u.name}!`, 'success');
-        loadData();
-      }
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Action failed', 'error');
-    } finally {
-      setActionLoading(null);
-    }
+  const handleGrantLifetime = (u: AdminUser) => {
+    setConfirmModalConfig({
+      isOpen: true,
+      title: 'Grant Lifetime Access',
+      message: (
+        <>
+          Grant permanent <strong style={{ color: '#fbbf24' }}>LIFETIME PRO</strong> access to{' '}
+          <strong style={{ color: 'var(--text-primary)' }}>{u.name}</strong> ({u.email})?
+          They will receive permanent access, will never expire, and will never be charged.
+        </>
+      ),
+      confirmText: 'Grant Lifetime',
+      variant: 'primary',
+      onConfirm: async () => {
+        setActionLoading(u._id);
+        try {
+          const res = await adminApi.updateSubscription(u._id, { action: 'grant_lifetime' });
+          if (res.success) {
+            toast(`👑 Lifetime Pro VIP access granted to ${u.name}!`, 'success');
+            setConfirmModalConfig((prev) => ({ ...prev, isOpen: false }));
+            loadData();
+          }
+        } catch (err) {
+          toast(err instanceof Error ? err.message : 'Action failed', 'error');
+        } finally {
+          setActionLoading(null);
+        }
+      },
+    });
   };
 
   const handleExtendTrial = async (u: AdminUser, days = 14) => {
@@ -103,22 +132,34 @@ export default function SuperAdminPage() {
     }
   };
 
-  const handleExpireUser = async (u: AdminUser) => {
-    if (!confirm(`Force expire subscription for ${u.name}? They will immediately see the Option A Paywall.`)) {
-      return;
-    }
-    setActionLoading(u._id);
-    try {
-      const res = await adminApi.updateSubscription(u._id, { action: 'expire' });
-      if (res.success) {
-        toast(`Subscription expired for ${u.name}`, 'success');
-        loadData();
-      }
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Action failed', 'error');
-    } finally {
-      setActionLoading(null);
-    }
+  const handleExpireUser = (u: AdminUser) => {
+    setConfirmModalConfig({
+      isOpen: true,
+      title: 'Force Expire Subscription',
+      message: (
+        <>
+          Force expire subscription for <strong style={{ color: 'var(--text-primary)' }}>{u.name}</strong>?
+          Their active workspace access will end immediately and they will see the subscription paywall.
+        </>
+      ),
+      confirmText: 'Expire Subscription',
+      variant: 'danger',
+      onConfirm: async () => {
+        setActionLoading(u._id);
+        try {
+          const res = await adminApi.updateSubscription(u._id, { action: 'expire' });
+          if (res.success) {
+            toast(`Subscription expired for ${u.name}`, 'success');
+            setConfirmModalConfig((prev) => ({ ...prev, isOpen: false }));
+            loadData();
+          }
+        } catch (err) {
+          toast(err instanceof Error ? err.message : 'Action failed', 'error');
+        } finally {
+          setActionLoading(null);
+        }
+      },
+    });
   };
 
   const handleApplyPlanEdit = async () => {
@@ -141,23 +182,38 @@ export default function SuperAdminPage() {
     }
   };
 
-  const handleToggleSuperAdmin = async (u: AdminUser) => {
+  const handleToggleSuperAdmin = (u: AdminUser) => {
     const nextState = !u.isSuperAdmin;
-    if (!confirm(`${nextState ? 'Promote' : 'Demote'} ${u.name} ${nextState ? 'to' : 'from'} Super Admin?`)) {
-      return;
-    }
-    setActionLoading(u._id);
-    try {
-      const res = await adminApi.toggleSuperAdmin(u._id, nextState);
-      if (res.success) {
-        toast(res.message, 'success');
-        loadData();
-      }
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Failed to toggle Super Admin role', 'error');
-    } finally {
-      setActionLoading(null);
-    }
+    setConfirmModalConfig({
+      isOpen: true,
+      title: nextState ? 'Promote to Super Admin' : 'Demote from Super Admin',
+      message: (
+        <>
+          Are you sure you want to {nextState ? 'promote' : 'demote'}{' '}
+          <strong style={{ color: 'var(--text-primary)' }}>{u.name}</strong> {nextState ? 'to' : 'from'} Super Admin?
+          {nextState
+            ? ' They will have full administrative privileges across all workspaces and users.'
+            : ' They will return to standard user permissions.'}
+        </>
+      ),
+      confirmText: nextState ? 'Promote to Admin' : 'Demote User',
+      variant: nextState ? 'primary' : 'danger',
+      onConfirm: async () => {
+        setActionLoading(u._id);
+        try {
+          const res = await adminApi.toggleSuperAdmin(u._id, nextState);
+          if (res.success) {
+            toast(res.message, 'success');
+            setConfirmModalConfig((prev) => ({ ...prev, isOpen: false }));
+            loadData();
+          }
+        } catch (err) {
+          toast(err instanceof Error ? err.message : 'Failed to toggle Super Admin role', 'error');
+        } finally {
+          setActionLoading(null);
+        }
+      },
+    });
   };
 
   const getSubBadge = (sub: AdminUser['subscription']) => {
@@ -1014,6 +1070,19 @@ export default function SuperAdminPage() {
           </div>
         )}
       </main>
+
+      {/* ══ Super Admin Action Confirmation Card ══ */}
+      <ConfirmModal
+        isOpen={confirmModalConfig.isOpen}
+        title={confirmModalConfig.title}
+        message={confirmModalConfig.message}
+        confirmText={confirmModalConfig.confirmText || 'Confirm'}
+        variant={confirmModalConfig.variant || 'danger'}
+        iconType={confirmModalConfig.variant === 'primary' ? 'alert' : 'trash'}
+        isLoading={Boolean(actionLoading)}
+        onClose={() => setConfirmModalConfig((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmModalConfig.onConfirm}
+      />
     </div>
   );
 }

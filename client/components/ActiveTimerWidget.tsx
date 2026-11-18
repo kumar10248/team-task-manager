@@ -3,10 +3,12 @@ import React, { useState } from 'react';
 import { useTimer, formatStopwatch } from '@/lib/timer-context';
 import { Clock, Square, X, ChevronRight, Check } from 'lucide-react';
 import Link from 'next/link';
+import ConfirmModal from '@/components/ConfirmModal';
 
 export default function ActiveTimerWidget() {
   const { activeTimer, elapsedSeconds, stopAndLog, cancelTimer } = useTimer();
   const [showLogModal, setShowLogModal] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [customDesc, setCustomDesc] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -151,11 +153,7 @@ export default function ActiveTimerWidget() {
         {/* Discard button */}
         <button
           type="button"
-          onClick={() => {
-            if (confirm(`Discard current timer for "${activeTimer.taskTitle}"?`)) {
-              cancelTimer();
-            }
-          }}
+          onClick={() => setShowDiscardConfirm(true)}
           style={{
             background: 'none',
             border: 'none',
@@ -175,6 +173,27 @@ export default function ActiveTimerWidget() {
           <X size={14} />
         </button>
       </div>
+
+      {/* ══ Discard Timer Confirmation Card ══ */}
+      <ConfirmModal
+        isOpen={showDiscardConfirm}
+        title="Discard Active Timer"
+        confirmText="Discard Timer"
+        variant="danger"
+        iconType="trash"
+        onClose={() => setShowDiscardConfirm(false)}
+        onConfirm={() => {
+          cancelTimer();
+          setShowDiscardConfirm(false);
+        }}
+        message={
+          <>
+            Are you sure you want to discard the current running timer for{' '}
+            <strong style={{ color: 'var(--text-primary)' }}>{activeTimer.taskTitle}</strong>?
+            The elapsed time ({formatStopwatch(elapsedSeconds)}) will not be logged.
+          </>
+        }
+      />
     </>
   );
 }

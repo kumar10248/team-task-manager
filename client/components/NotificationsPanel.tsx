@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { X, Bell, AtSign, CheckCircle2, MessageSquare, Plus, UserPlus } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { X, Bell, AtSign, CheckCircle2, MessageSquare, Plus, UserPlus, Check, UserMinus, UserCheck } from 'lucide-react';
 import { notificationsApi, projectsApi, Notification } from '../lib/api';
 import { useToast } from './Toast';
 
@@ -10,6 +11,7 @@ interface NotificationsPanelProps {
 }
 
 export default function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps) {
+  const router = useRouter();
   const toast = useToast();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
@@ -52,7 +54,11 @@ export default function NotificationsPanel({ isOpen, onClose }: NotificationsPan
         setNotifications(prev => prev.map(notif => notif._id === n._id ? { ...notif, isRead: true } : notif));
       } catch {}
     }
-    // Ideally, navigate to the task here if n.task is present
+    const pid = typeof n.project === 'object' && n.project ? n.project._id : (typeof n.project === 'string' ? n.project : null);
+    if (pid) {
+      onClose();
+      router.push(`/projects/${pid}`);
+    }
   };
 
   const handleAcceptInvite = async (invitationId: string, notifId: string) => {
@@ -60,7 +66,19 @@ export default function NotificationsPanel({ isOpen, onClose }: NotificationsPan
       const res = await projectsApi.acceptInvitation(invitationId);
       toast(res.message || 'Invitation accepted! You are now a member.', 'success');
       setHandledInvites(prev => ({ ...prev, [invitationId]: 'accepted' }));
-      setNotifications(prev => prev.map(n => n._id === notifId ? { ...n, isRead: true } : n));
+      setNotifications(prev => prev.map(n => {
+        const thisInvId = typeof n.invitation === 'object' && n.invitation ? n.invitation._id : n.invitation;
+        if (n._id === notifId || thisInvId === invitationId) {
+          return {
+            ...n,
+            isRead: true,
+            isJoined: true,
+            invitationStatus: 'accepted',
+            text: n.text ? n.text.replace(/\s*Please accept or decline the invitation\.?/gi, '').trim() : n.text,
+          };
+        }
+        return n;
+      }));
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : 'Failed to accept invitation', 'error');
     }
@@ -71,7 +89,13 @@ export default function NotificationsPanel({ isOpen, onClose }: NotificationsPan
       await projectsApi.declineInvitation(invitationId);
       toast('Invitation declined', 'success');
       setHandledInvites(prev => ({ ...prev, [invitationId]: 'declined' }));
-      setNotifications(prev => prev.map(n => n._id === notifId ? { ...n, isRead: true } : n));
+      setNotifications(prev => prev.map(n => {
+        const thisInvId = typeof n.invitation === 'object' && n.invitation ? n.invitation._id : n.invitation;
+        if (n._id === notifId || thisInvId === invitationId) {
+          return { ...n, isRead: true, isJoined: false, invitationStatus: 'declined' };
+        }
+        return n;
+      }));
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : 'Failed to decline invitation', 'error');
     }
@@ -151,9 +175,37 @@ export default function NotificationsPanel({ isOpen, onClose }: NotificationsPan
               if (n.type === 'status') { Icon = CheckCircle2; color = '#4ade80'; }
               if (n.type === 'comment') { Icon = MessageSquare; color = 'var(--text-muted)'; }
               if (n.type === 'invitation') { Icon = UserPlus; color = '#c084fc'; }
+              if (n.type === 'system') {
+                if (n.text.includes('removed')) {
+                  Icon = UserMinus;
+                  color = '#f87171';
+                } else if (n.text.includes('joined') || n.text.includes('accepted') || n.text.includes('added')) {
+                  Icon = UserCheck;
+                  color = '#4ade80';
+                } else {
+                  Icon = Bell;
+                  color = 'var(--accent-primary)';
+                }
+              }
 
               const invId = typeof n.invitation === 'object' && n.invitation ? n.invitation._id : (typeof n.invitation === 'string' ? n.invitation : null);
-              const inviteStatus = invId ? handledInvites[invId] : null;
+
+              const isJoined = Boolean(
+                n.isJoined ||
+                (invId && handledInvites[invId] === 'accepted') ||
+                n.invitationStatus === 'accepted' ||
+                (typeof n.invitation === 'object' && n.invitation?.status === 'accepted')
+              );
+
+              const isDeclined = Boolean(
+                (!isJoined && (invId && handledInvites[invId] === 'declined')) ||
+                n.invitationStatus === 'declined' ||
+                (typeof n.invitation === 'object' && n.invitation?.status === 'declined')
+              );
+
+              const isExpired = Boolean(
+                !isJoined && !isDeclined && (n.invitationStatus === 'expired' || (!invId && !n.isJoined))
+              );
 
               return (
                 <div 
@@ -186,20 +238,64 @@ export default function NotificationsPanel({ isOpen, onClose }: NotificationsPan
 
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, fontFamily: 'Outfit, sans-serif', color: !n.isRead ? 'var(--text-primary)' : 'var(--text-secondary)', lineHeight: 1.4 }}>
-                      <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{userName}</span> {n.text}
+                      <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{userName}</span>{' '}
+                      {isJoined && n.text ? n.text.replace(/\s*Please accept or decline the invitation\.?/gi, '').trim() : n.text}
                     </div>
 
-                    {n.type === 'invitation' && invId && (
+                    {n.type === 'invitation' && (
                       <div style={{ marginTop: 10 }}>
-                        {inviteStatus === 'accepted' ? (
-                          <span style={{ fontSize: 12, color: '#4ade80', fontWeight: 500, fontFamily: 'Outfit, sans-serif' }}>
-                            ✓ Joined project
+                        {isJoined ? (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '4px 10px',
+                              borderRadius: 6,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              fontFamily: 'Outfit, sans-serif',
+                              color: '#4ade80',
+                              background: 'rgba(74, 222, 128, 0.12)',
+                              border: '1px solid rgba(74, 222, 128, 0.3)',
+                            }}
+                          >
+                            <Check size={13} strokeWidth={2.5} /> Joined
                           </span>
-                        ) : inviteStatus === 'declined' ? (
-                          <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
-                            Invitation declined
+                        ) : isDeclined ? (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 5,
+                              padding: '4px 10px',
+                              borderRadius: 6,
+                              fontSize: 12,
+                              fontFamily: 'Outfit, sans-serif',
+                              color: 'var(--text-muted)',
+                              background: 'rgba(255, 255, 255, 0.04)',
+                              border: '1px solid rgba(255, 255, 255, 0.08)',
+                            }}
+                          >
+                            <X size={12} /> Invitation declined
                           </span>
-                        ) : (
+                        ) : isExpired ? (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              padding: '4px 10px',
+                              borderRadius: 6,
+                              fontSize: 12,
+                              fontFamily: 'Outfit, sans-serif',
+                              color: 'var(--text-muted)',
+                              background: 'rgba(255, 255, 255, 0.04)',
+                              border: '1px solid rgba(255, 255, 255, 0.08)',
+                            }}
+                          >
+                            Invitation no longer active
+                          </span>
+                        ) : invId ? (
                           <div style={{ display: 'flex', gap: 8 }}>
                             <button
                               type="button"
@@ -208,17 +304,21 @@ export default function NotificationsPanel({ isOpen, onClose }: NotificationsPan
                                 handleAcceptInvite(invId, n._id);
                               }}
                               style={{
-                                padding: '4px 12px',
+                                padding: '5px 14px',
                                 fontSize: 12,
                                 background: 'rgba(74, 222, 128, 0.15)',
                                 color: '#4ade80',
                                 border: '1px solid rgba(74, 222, 128, 0.3)',
                                 borderRadius: 6,
                                 cursor: 'pointer',
-                                fontWeight: 500,
+                                fontWeight: 600,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                transition: 'all 0.2s',
                               }}
                             >
-                              Accept & Join
+                              <Check size={13} strokeWidth={2.5} /> Accept &amp; Join
                             </button>
                             <button
                               type="button"
@@ -227,19 +327,23 @@ export default function NotificationsPanel({ isOpen, onClose }: NotificationsPan
                                 handleDeclineInvite(invId, n._id);
                               }}
                               style={{
-                                padding: '4px 10px',
+                                padding: '5px 12px',
                                 fontSize: 12,
                                 background: 'rgba(255, 255, 255, 0.04)',
                                 color: 'var(--text-muted)',
                                 border: '1px solid rgba(255, 255, 255, 0.08)',
                                 borderRadius: 6,
                                 cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                transition: 'all 0.2s',
                               }}
                             >
-                              Decline
+                              <X size={13} /> Decline
                             </button>
                           </div>
-                        )}
+                        ) : null}
                       </div>
                     )}
 

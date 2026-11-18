@@ -8,8 +8,9 @@ import type { CreateProjectPayload, ProjectInvitation } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import Modal from '@/components/Model';
+import ConfirmModal from '@/components/ConfirmModal';
 import { ProjectsSkeleton } from '@/components/Skeletons';
-import { Plus, FolderKanban, Trash2, ArrowRight, Archive, ArchiveRestore, CheckCircle2, UserPlus, Check, X, Lock } from 'lucide-react';
+import { Plus, FolderKanban, Trash2, ArrowRight, Archive, ArchiveRestore, CheckCircle2, UserPlus, Check, X, Lock, Send, RefreshCw } from 'lucide-react';
 
 interface TaskStats { total: number; done: number }
 interface Project {
@@ -198,15 +199,19 @@ export default function ProjectsPage(): ReactElement {
   const router = useRouter();
   const toast  = useToast();
 
-  const [projects, setProjects]         = useState<Project[]>([]);
-  const [invitations, setInvitations]   = useState<ProjectInvitation[]>([]);
-  const [respondingId, setRespondingId] = useState<string | null>(null);
-  const [loading, setLoading]           = useState(true);
-  const [showModal, setShowModal]       = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
-  const [saving, setSaving]             = useState(false);
-  const [form, setForm]                 = useState<ProjectForm>({ name:'', description:'', color: COLORS[0] });
-  const [statusTab, setStatusTab]       = useState<'active' | 'archived' | 'completed' | 'all'>('active');
+  const [projects, setProjects]               = useState<Project[]>([]);
+  const [invitations, setInvitations]         = useState<ProjectInvitation[]>([]);
+  const [sentInvitations, setSentInvitations] = useState<ProjectInvitation[]>([]);
+  const [respondingId, setRespondingId]       = useState<string | null>(null);
+  const [respondingSentId, setRespondingSentId] = useState<string | null>(null);
+  const [loading, setLoading]                 = useState(true);
+  const [showModal, setShowModal]             = useState(false);
+  const [deleteTarget, setDeleteTarget]       = useState<Project | null>(null);
+  const [cancelInviteTarget, setCancelInviteTarget] = useState<ProjectInvitation | null>(null);
+  const [isDeleting, setIsDeleting]           = useState(false);
+  const [saving, setSaving]                   = useState(false);
+  const [form, setForm]                       = useState<ProjectForm>({ name:'', description:'', color: COLORS[0] });
+  const [statusTab, setStatusTab]             = useState<'active' | 'archived' | 'completed' | 'all'>('active');
 
   useEffect(() => { if (!authLoading && !user) router.push('/login'); }, [user, authLoading, router]);
 
@@ -226,8 +231,12 @@ export default function ProjectsPage(): ReactElement {
     }
 
     try {
-      const invData = await projectsApi.getInvitations();
+      const [invData, sentInvData] = await Promise.all([
+        projectsApi.getInvitations().catch(() => ({ invitations: [] })),
+        projectsApi.getSentInvitations().catch(() => ({ invitations: [] })),
+      ]);
       setInvitations(invData.invitations || []);
+      setSentInvitations(sentInvData.invitations || []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -248,7 +257,11 @@ export default function ProjectsPage(): ReactElement {
         console.error(err);
         return { invitations: [] };
       }),
-    ]).then(([projData, invData]) => {
+      projectsApi.getSentInvitations().catch((err) => {
+        console.error(err);
+        return { invitations: [] };
+      }),
+    ]).then(([projData, invData, sentInvData]) => {
       if (!active) return;
       setProjects(
         (projData.projects || []).map((p) => ({
@@ -259,6 +272,7 @@ export default function ProjectsPage(): ReactElement {
         }))
       );
       setInvitations(invData.invitations || []);
+      setSentInvitations(sentInvData.invitations || []);
       setLoading(false);
     });
 
@@ -294,6 +308,31 @@ export default function ProjectsPage(): ReactElement {
     }
   };
 
+  const handleCancelInvite = async (invId: string) => {
+    setRespondingSentId(invId);
+    try {
+      await projectsApi.cancelInvitation(invId);
+      toast('Invitation revoked successfully', 'success');
+      setSentInvitations((prev) => prev.filter((i) => i._id !== invId));
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to cancel invitation', 'error');
+    } finally {
+      setRespondingSentId(null);
+    }
+  };
+
+  const handleResendInvite = async (invId: string) => {
+    setRespondingSentId(invId);
+    try {
+      await projectsApi.resendInvitation(invId);
+      toast('Invitation reminder notification sent! ✉️', 'success');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to resend invitation', 'error');
+    } finally {
+      setRespondingSentId(null);
+    }
+  };
+
   const create = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSaving(true);
@@ -309,12 +348,31 @@ export default function ProjectsPage(): ReactElement {
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
+    setIsDeleting(true);
     try {
       await projectsApi.delete(deleteTarget._id);
       toast('Project deleted');
       setDeleteTarget(null);
       load();
     } catch (err) { toast(err instanceof Error ? err.message : 'Error', 'error'); }
+    finally { setIsDeleting(false); }
+  };
+
+  const confirmCancelInvite = async () => {
+    if (!cancelInviteTarget) return;
+    setRespondingSentId(cancelInviteTarget._id);
+    setIsDeleting(true);
+    try {
+      await projectsApi.cancelInvitation(cancelInviteTarget._id);
+      toast('Invitation revoked successfully', 'success');
+      setSentInvitations((prev) => prev.filter((i) => i._id !== cancelInviteTarget._id));
+      setCancelInviteTarget(null);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to cancel invitation', 'error');
+    } finally {
+      setRespondingSentId(null);
+      setIsDeleting(false);
+    }
   };
 
   const archiveProject = async (p: Project) => {
@@ -504,6 +562,134 @@ export default function ProjectsPage(): ReactElement {
             </div>
           )}
 
+          {/* ── Sent Project Invitations Banner (Admin / Inviter View) ── */}
+          {sentInvitations.length > 0 && (
+            <div
+              style={{
+                background: 'linear-gradient(135deg, rgba(249, 115, 22, 0.1), rgba(234, 179, 8, 0.05))',
+                border: '1px solid rgba(249, 115, 22, 0.25)',
+                borderRadius: 14,
+                padding: '18px 22px',
+                marginBottom: 28,
+                boxShadow: '0 8px 32px -8px rgba(249, 115, 22, 0.15)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(249, 115, 22, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fb923c' }}>
+                    <Send size={15} />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#fed7aa', fontFamily: 'Outfit, sans-serif' }}>
+                      Sent Project Invitations ({sentInvitations.length})
+                    </h3>
+                  </div>
+                </div>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Awaiting member acceptance
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {sentInvitations.map((inv) => {
+                  const projName = typeof inv.project === 'object' && inv.project ? inv.project.name : 'Project';
+                  const projColor = (typeof inv.project === 'object' && inv.project && inv.project.color) || '#f97316';
+                  const inviteeName = typeof inv.user === 'object' && inv.user ? inv.user.name : 'User';
+                  const inviteeEmail = typeof inv.user === 'object' && inv.user ? inv.user.email : '';
+                  const isActing = respondingSentId === inv._id;
+
+                  return (
+                    <div
+                      key={inv._id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        background: 'rgba(15, 23, 42, 0.6)',
+                        border: '1px solid rgba(255, 255, 255, 0.06)',
+                        borderRadius: 10,
+                        padding: '12px 16px',
+                        flexWrap: 'wrap',
+                        gap: 12,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div
+                          style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: '50%',
+                            background: projColor,
+                            boxShadow: `0 0 8px ${projColor}`,
+                          }}
+                        />
+                        <div>
+                          <p style={{ margin: 0, fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
+                            Invited <strong style={{ color: '#fed7aa' }}>{inviteeName}</strong> {inviteeEmail && `(${inviteeEmail})`} to{' '}
+                            <span style={{ color: 'var(--text-primary)' }}>{projName}</span>
+                            <span style={{ fontSize: 11, marginLeft: 8, padding: '2px 8px', borderRadius: 999, background: 'rgba(255, 255, 255, 0.08)', color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
+                              Role: {inv.role}
+                            </span>
+                          </p>
+                          <p style={{ margin: '2px 0 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+                            Status: <span style={{ color: '#facc15' }}>⏳ Pending Acceptance</span> • Sent on {new Date(inv.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <button
+                          onClick={() => handleResendInvite(inv._id)}
+                          disabled={isActing}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 8,
+                            background: 'rgba(249, 115, 22, 0.15)',
+                            color: '#fb923c',
+                            border: '1px solid rgba(249, 115, 22, 0.3)',
+                            fontSize: 12,
+                            fontWeight: 500,
+                            cursor: isActing ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            opacity: isActing ? 0.6 : 1,
+                            transition: 'all 0.2s',
+                          }}
+                          title="Resend invitation notification to user"
+                        >
+                          <RefreshCw size={13} className={isActing ? 'animate-spin' : ''} /> Resend Reminder
+                        </button>
+                        <button
+                          onClick={() => setCancelInviteTarget(inv)}
+                          disabled={isActing}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 8,
+                            background: 'rgba(239, 68, 68, 0.1)',
+                            color: '#f87171',
+                            border: '1px solid rgba(239, 68, 68, 0.25)',
+                            fontSize: 12,
+                            fontWeight: 500,
+                            cursor: isActing ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            opacity: isActing ? 0.6 : 1,
+                            transition: 'all 0.2s',
+                          }}
+                          title="Revoke / cancel this invitation"
+                        >
+                          <Trash2 size={13} /> Cancel Invitation
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* ── Status Lifecycle Tabs ── */}
           <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: 32 }}>
             {(
@@ -623,17 +809,46 @@ export default function ProjectsPage(): ReactElement {
         </Modal>
       )}
 
-      {deleteTarget && (
-        <Modal title="Delete Project" onClose={() => setDeleteTarget(null)} width={420}>
-          <p style={{ color:'var(--text-secondary)', fontSize: 14, fontFamily: 'Outfit, sans-serif', marginBottom: 28, lineHeight: 1.6 }}>
-            Are you sure you want to delete <strong style={{ color:'var(--text-primary)' }}>{deleteTarget.name}</strong>? This action will permanently remove the project and all of its tasks.
-          </p>
-          <div style={{ display:'flex', gap: 12, justifyContent:'flex-end' }}>
-            <button className="btn-ghost" onClick={() => setDeleteTarget(null)} style={{ padding: '10px 20px' }}>Cancel</button>
-            <button className="btn-primary" style={{ background: '#ef4444', padding: '10px 24px' }} onClick={confirmDelete}>Delete</button>
-          </div>
-        </Modal>
-      )}
+      <ConfirmModal
+        isOpen={Boolean(deleteTarget)}
+        title="Delete Project"
+        confirmText="Delete Project"
+        variant="danger"
+        iconType="trash"
+        isLoading={isDeleting}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        message={
+          <>
+            Are you sure you want to permanently delete{' '}
+            <strong style={{ color: 'var(--text-primary)' }}>{deleteTarget?.name}</strong>?
+            This action will permanently delete the project, task boards, and all associated collaboration data.
+          </>
+        }
+      />
+
+      <ConfirmModal
+        isOpen={Boolean(cancelInviteTarget)}
+        title="Cancel Project Invitation"
+        confirmText="Cancel Invitation"
+        variant="danger"
+        iconType="user-minus"
+        isLoading={isDeleting}
+        onClose={() => setCancelInviteTarget(null)}
+        onConfirm={confirmCancelInvite}
+        message={
+          <>
+            Are you sure you want to cancel the invitation sent to{' '}
+            <strong style={{ color: 'var(--text-primary)' }}>
+              {typeof cancelInviteTarget?.user === 'object' && cancelInviteTarget.user
+                ? (cancelInviteTarget.user.name || cancelInviteTarget.user.email)
+                : 'this user'}
+            </strong>{' '}
+            for <strong style={{ color: 'var(--text-primary)' }}>{typeof cancelInviteTarget?.project === 'object' ? cancelInviteTarget.project?.name : 'the project'}</strong>?
+            They will no longer be able to accept or join using this invitation.
+          </>
+        }
+      />
     </div>
   );
 }

@@ -249,6 +249,16 @@ export interface CreateProjectPayload { name: string; description?: string; colo
 export interface ProjectListResponse  { success: boolean; projects: Project[] }
 export interface ProjectResponse      { success: boolean; project: Project; members: ProjectMember[]; taskStats?: unknown }
 
+export interface MemberCandidate {
+  _id: string;
+  name: string;
+  email: string;
+  avatar?: string | null;
+  projectAddPrivacy: 'anyone' | 'nobody' | 'request';
+  isAlreadyMember: boolean;
+  isPendingInvitation: boolean;
+}
+
 export const projectsApi = {
   list:              ()                                    => get<ProjectListResponse>('/projects'),
   create:            (d: CreateProjectPayload)             => post<{ success: boolean; project: Project }>('/projects', d),
@@ -258,12 +268,17 @@ export const projectsApi = {
   restore:           (id: string)                          => patch<{ success: boolean; project: Project }>(`/projects/${id}`, { status: 'active' }),
   complete:          (id: string)                          => patch<{ success: boolean; project: Project }>(`/projects/${id}`, { status: 'completed' }),
   delete:            (id: string)                          => del<{ success: boolean; message: string }>(`/projects/${id}`),
+  getCandidates:     (pid: string, search?: string)        => get<{ success: boolean; candidates: MemberCandidate[] }>(`/projects/${pid}/member-candidates${search ? `?search=${encodeURIComponent(search)}` : ''}`),
   addMember:         (pid: string, d: { email: string; role: 'admin' | 'member' }) => post<{ success: boolean; member?: ProjectMember; requiresApproval?: boolean; message?: string }>(`/projects/${pid}/members`, d),
   updateMemberRole:  (pid: string, uid: string, d: { role: 'admin' | 'member' })  => patch<{ success: boolean; member: ProjectMember }>(`/projects/${pid}/members/${uid}`, d),
   removeMember:      (pid: string, uid: string)            => del<{ success: boolean; message: string }>(`/projects/${pid}/members/${uid}`),
-  getInvitations:    ()                                    => get<{ success: boolean; invitations: ProjectInvitation[] }>('/projects/invitations'),
-  acceptInvitation:  (id: string)                          => post<{ success: boolean; message: string; project: string }>(`/projects/invitations/${id}/accept`, {}),
-  declineInvitation: (id: string)                          => post<{ success: boolean; message: string }>(`/projects/invitations/${id}/decline`, {}),
+  getInvitations:        ()                                    => get<{ success: boolean; invitations: ProjectInvitation[] }>('/projects/invitations'),
+  getSentInvitations:    ()                                    => get<{ success: boolean; invitations: ProjectInvitation[] }>('/projects/sent-invitations'),
+  getProjectInvitations: (pid: string)                         => get<{ success: boolean; invitations: ProjectInvitation[] }>(`/projects/${pid}/invitations`),
+  acceptInvitation:      (id: string)                          => post<{ success: boolean; message: string; project: string }>(`/projects/invitations/${id}/accept`, {}),
+  declineInvitation:     (id: string)                          => post<{ success: boolean; message: string }>(`/projects/invitations/${id}/decline`, {}),
+  cancelInvitation:      (id: string)                          => del<{ success: boolean; message: string }>(`/projects/invitations/${id}`),
+  resendInvitation:      (id: string)                          => post<{ success: boolean; message: string }>(`/projects/invitations/${id}/resend`, {}),
   getTags:           (id: string)                          => get<{ success: boolean; tags: string[] }>(`/projects/${id}/tags`),
   addTag:            (id: string, tag: string)             => post<{ success: boolean; tag: string; tags: string[] }>(`/projects/${id}/tags`, { tag }),
   deleteTag:         (id: string, tag: string)             => del<{ success: boolean; tags: string[] }>(`/projects/${id}/tags/${encodeURIComponent(tag)}`),
@@ -480,6 +495,8 @@ export interface Notification {
   project?: string | { _id: string; name: string; color?: string };
   task?: string;
   invitation?: string | { _id: string; status: 'pending' | 'accepted' | 'declined'; role: string; project?: { _id: string; name: string } };
+  isJoined?: boolean;
+  invitationStatus?: 'pending' | 'accepted' | 'declined' | 'expired';
 }
 
 export const notificationsApi = {

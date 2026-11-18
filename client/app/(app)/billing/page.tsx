@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth-context';
 import { subscriptionApi, Subscription, RazorpayOptions, RazorpayResponse } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
+import ConfirmModal from '@/components/ConfirmModal';
 import { triggerConfetti } from '@/lib/confetti';
 import {
   CreditCard, Check, Sparkles, Zap, ShieldCheck,
@@ -46,6 +47,7 @@ export default function BillingPage() {
   const [isConfigured, setIsConfigured] = useState(false);
   const [razorpayKeyId, setRazorpayKeyId] = useState('');
   const [canceling, setCanceling] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const syncSubscription = useCallback((sub: Subscription | null) => {
     setSubscription(sub);
@@ -184,10 +186,11 @@ export default function BillingPage() {
     }
   };
 
-  const handleCancelSubscription = async () => {
-    if (!confirm('Are you sure you want to cancel automatic subscription renewal? You will keep access until your current billing period ends.')) {
-      return;
-    }
+  const handleCancelSubscription = () => {
+    setShowCancelConfirm(true);
+  };
+
+  const confirmCancelSubscription = async () => {
     setCanceling(true);
     try {
       const res = await subscriptionApi.cancel();
@@ -195,6 +198,7 @@ export default function BillingPage() {
         toast(res.message, 'success');
         syncSubscription(res.subscription);
         await refreshSubscription();
+        setShowCancelConfirm(false);
       }
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to cancel subscription', 'error');
@@ -750,6 +754,23 @@ export default function BillingPage() {
           </div>
         </div>
       </main>
+
+      {/* ══ Cancel Subscription Renewal Confirmation Card ══ */}
+      <ConfirmModal
+        isOpen={showCancelConfirm}
+        title="Cancel Automatic Renewal"
+        confirmText="Cancel Renewal"
+        variant="warning"
+        iconType="alert"
+        isLoading={canceling}
+        onClose={() => setShowCancelConfirm(false)}
+        onConfirm={confirmCancelSubscription}
+        message={
+          <>
+            Are you sure you want to cancel automatic subscription renewal? You will retain complete access to all workspace features, task boards, and meetings until the end of your prepaid billing period.
+          </>
+        }
+      />
     </div>
   );
 }

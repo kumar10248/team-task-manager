@@ -15,6 +15,7 @@ import {
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
 import Modal from '@/components/Model';
+import ConfirmModal from '@/components/ConfirmModal';
 import {
   Video,
   Plus,
@@ -59,6 +60,8 @@ function MeetingsContent() {
   // Modals
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [viewingMeeting, setViewingMeeting] = useState<Meeting | null>(null);
+  const [deleteMeetingTarget, setDeleteMeetingTarget] = useState<Meeting | string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Create Form State
@@ -271,17 +274,27 @@ function MeetingsContent() {
     }
   };
 
-  const handleDeleteMeeting = async (id: string, e?: React.MouseEvent) => {
+  const handleDeleteMeeting = (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    if (!confirm('Are you sure you want to delete this meeting?')) return;
+    const m = meetings.find((meet) => meet._id === id);
+    setDeleteMeetingTarget(m || id);
+  };
+
+  const confirmDeleteMeeting = async () => {
+    if (!deleteMeetingTarget) return;
+    const id = typeof deleteMeetingTarget === 'object' ? deleteMeetingTarget._id : deleteMeetingTarget;
+    setIsDeleting(true);
     try {
       await meetingsApi.delete(id);
       setMeetings((prev) => prev.filter((m) => m._id !== id));
       if (viewingMeeting?._id === id) setViewingMeeting(null);
       toast('Meeting cancelled and deleted', 'success');
+      setDeleteMeetingTarget(null);
     } catch (err: unknown) {
       console.error(err);
       toast('Failed to delete meeting', 'error');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -1969,6 +1982,29 @@ function MeetingsContent() {
           </div>
         </Modal>
       )}
+
+      {/* ══ Delete Meeting Confirmation Card ══ */}
+      <ConfirmModal
+        isOpen={Boolean(deleteMeetingTarget)}
+        title="Delete Meeting"
+        confirmText="Delete Meeting"
+        variant="danger"
+        iconType="trash"
+        isLoading={isDeleting}
+        onClose={() => setDeleteMeetingTarget(null)}
+        onConfirm={confirmDeleteMeeting}
+        message={
+          <>
+            Are you sure you want to delete{' '}
+            <strong style={{ color: 'var(--text-primary)' }}>
+              {typeof deleteMeetingTarget === 'object' && deleteMeetingTarget
+                ? deleteMeetingTarget.title
+                : 'this meeting'}
+            </strong>?
+            The meeting link will be deactivated and removed from all participants' schedules.
+          </>
+        }
+      />
     </div>
   );
 }

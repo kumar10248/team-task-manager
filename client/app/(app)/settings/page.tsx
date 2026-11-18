@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth-context';
 import { authApi, projectsApi, ProjectInvitation, ProjectAddPrivacy } from '@/lib/api';
 import { useToast } from '@/components/Toast';
 import Sidebar from '@/components/Sidebar';
+import ConfirmModal from '@/components/ConfirmModal';
 import {
   User, Lock, Save, Bell, Moon, Smartphone, ShieldCheck, Mail,
   Shield, Users, UserPlus, ShieldAlert, Check, X, Clock, CheckCircle2,
@@ -38,6 +39,7 @@ export default function SettingsPage(): ReactElement {
   
   const fileInputRef                          = useRef<HTMLInputElement>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState<boolean>(false);
+  const [showRemoveAvatarConfirm, setShowRemoveAvatarConfirm] = useState<boolean>(false);
 
   // Preferences state
   const [prefs, setPrefs] = useState({
@@ -131,14 +133,18 @@ export default function SettingsPage(): ReactElement {
     reader.readAsDataURL(file);
   };
 
-  const handleRemoveAvatar = async () => {
-    if (!confirm('Are you sure you want to remove your avatar?')) return;
+  const handleRemoveAvatar = () => {
+    setShowRemoveAvatarConfirm(true);
+  };
+
+  const confirmRemoveAvatar = async () => {
     setUploadingAvatar(true);
     try {
       const res = await authApi.deleteAvatar();
       if (res.success) {
         setUser(res.user);
         toast('Avatar removed successfully', 'success');
+        setShowRemoveAvatarConfirm(false);
       }
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : 'Failed to remove avatar', 'error');
@@ -778,6 +784,23 @@ export default function SettingsPage(): ReactElement {
           )}
         </div>
       </main>
+
+      {/* ══ Remove Avatar Confirmation Card ══ */}
+      <ConfirmModal
+        isOpen={showRemoveAvatarConfirm}
+        title="Remove Profile Avatar"
+        confirmText="Remove Avatar"
+        variant="danger"
+        iconType="trash"
+        isLoading={uploadingAvatar}
+        onClose={() => setShowRemoveAvatarConfirm(false)}
+        onConfirm={confirmRemoveAvatar}
+        message={
+          <>
+            Are you sure you want to remove your custom profile avatar? Your display initials will be shown across the workspace instead.
+          </>
+        }
+      />
     </div>
   );
 }

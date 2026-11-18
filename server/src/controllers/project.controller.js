@@ -281,6 +281,67 @@ exports.deleteProject = async (req, res) => {
 // ─── Member Management ───────────────────────────────────────────────────────
 
 /**
+ * GET /api/projects/:id/member-candidates
+ * Get candidate users for adding to the project, with their projectAddPrivacy settings,
+ * whether they are already a member, and whether an invitation is pending.
+ * Admin only.
+ */
+exports.getMemberCandidates = async (req, res) => {
+  try {
+    const membership = await getMembership(req.params.id, req.user._id);
+    if (!membership || membership.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+
+    const { search } = req.query;
+    const filter = { isActive: true };
+
+    if (search && search.trim()) {
+      const q = search.trim();
+      filter.$or = [
+        { name: { $regex: q, $options: 'i' } },
+        { email: { $regex: q, $options: 'i' } },
+      ];
+    }
+
+    const users = await User.find(filter)
+      .select('name email avatar projectAddPrivacy')
+      .sort({ name: 1 })
+      .lean();
+
+    const currentMembers = await ProjectMember.find({ project: req.params.id }).select('user').lean();
+    const memberUserIds = new Set(currentMembers.map((m) => m.user.toString()));
+
+    const pendingInvitations = await ProjectInvitation.find({ project: req.params.id, status: 'pending' })
+      .select('user')
+      .lean();
+    const pendingUserIds = new Set(pendingInvitations.map((inv) => inv.user.toString()));
+
+    const candidates = users
+      .filter((u) => u._id.toString() !== req.user._id.toString())
+      .map((u) => {
+        const uid = u._id.toString();
+        const isMember = memberUserIds.has(uid);
+        const isPending = pendingUserIds.has(uid);
+        return {
+          _id: u._id,
+          name: u.name,
+          email: u.email,
+          avatar: u.avatar,
+          projectAddPrivacy: u.projectAddPrivacy || 'anyone',
+          isAlreadyMember: isMember,
+          isPendingInvitation: isPending,
+        };
+      });
+
+    res.json({ success: true, candidates });
+  } catch (err) {
+    console.error('Get member candidates error:', err);
+    res.status(500).json({ success: false, message: 'Failed to fetch candidate members' });
+  }
+};
+
+/**
  * POST /api/projects/:id/members
  * Add a member by email. Admin only.
  * Respects user's privacy settings:
@@ -391,6 +452,23 @@ exports.addMember = async (req, res) => {
       project: req.params.id,
       text: `added you to "${project.name}" as a ${role}`,
     });
+
+    // Notify other admins of the project
+    const otherAdmins = await ProjectMember.find({
+      project: req.params.id,
+      role: 'admin',
+      user: { $nin: [req.user._id, targetUser._id] },
+    }).select('user');
+
+    for (const adm of otherAdmins) {
+      await createNotification({
+        recipient: adm.user,
+        sender: req.user._id,
+        type: 'system',
+        project: req.params.id,
+        text: `added ${targetUser.name} to "${project.name}" as a ${role}.`,
+      });
+    }
 
     const populated = await newMember.populate('user', 'name email avatar');
     res.status(201).json({ success: true, requiresApproval: false, member: populated });
@@ -549,6 +627,9 @@ exports.removeMember = async (req, res) => {
       }
     }
 
+    const targetUser = await User.findById(targetUserId).select('name email avatar');
+    const targetName = targetUser?.name || 'A team member';
+
     await ProjectMember.findOneAndDelete({
       project: req.params.id,
       user: req.params.userId,
@@ -559,6 +640,46 @@ exports.removeMember = async (req, res) => {
       { project: req.params.id, assignedTo: req.params.userId },
       { $pull: { assignedTo: req.params.userId } }
     );
+
+    // Send notifications if admin removed someone else
+    if (targetUserId !== currentUserId) {
+      const { createNotification } = require('./notification.controller');
+
+      // 1. Notify the removed member
+      await createNotification({
+        recipient: targetUserId,
+        sender: req.user._id,
+        type: 'system',
+        project: project._id,
+        text: `removed you from "${project.name}".`,
+      });
+
+      // 2. Notify all other admins of the project
+      const otherAdmins = await ProjectMember.find({
+        project: project._id,
+        role: 'admin',
+        user: { $nin: [req.user._id, targetUserId] },
+      }).select('user');
+
+      const adminUserIds = new Set(otherAdmins.map((m) => m.user.toString()));
+      if (
+        project.createdBy &&
+        project.createdBy.toString() !== currentUserId &&
+        project.createdBy.toString() !== targetUserId.toString()
+      ) {
+        adminUserIds.add(project.createdBy.toString());
+      }
+
+      for (const adminId of adminUserIds) {
+        await createNotification({
+          recipient: adminId,
+          sender: req.user._id,
+          type: 'system',
+          project: project._id,
+          text: `removed ${targetName} from "${project.name}".`,
+        });
+      }
+    }
 
     res.json({ success: true, message: 'Member removed successfully' });
   } catch (err) {
@@ -596,14 +717,13 @@ exports.getMyInvitations = async (req, res) => {
  */
 exports.acceptInvitation = async (req, res) => {
   try {
-    const invitation = await ProjectInvitation.findOne({
+    let invitation = await ProjectInvitation.findOne({
       _id: req.params.id,
       user: req.user._id,
-      status: 'pending',
     });
 
     if (!invitation) {
-      return res.status(404).json({ success: false, message: 'Invitation not found or already handled' });
+      return res.status(404).json({ success: false, message: 'Invitation not found' });
     }
 
     const project = await Project.findById(invitation.project);
@@ -628,25 +748,56 @@ exports.acceptInvitation = async (req, res) => {
       });
     }
 
+    const wasPending = invitation.status === 'pending';
     invitation.status = 'accepted';
     await invitation.save();
 
-    // Mark invitation notification as read
+    // Mark invitation notification as read and clean up text
     const Notification = require('../models/Notification');
-    await Notification.updateMany(
-      { recipient: req.user._id, invitation: invitation._id },
-      { isRead: true }
-    );
-
-    // Notify the inviter
-    const { createNotification } = require('./notification.controller');
-    await createNotification({
-      recipient: invitation.invitedBy,
-      sender: req.user._id,
-      type: 'system',
-      project: invitation.project,
-      text: `accepted your invitation to join "${project.name}"!`,
+    const relatedNotifs = await Notification.find({
+      recipient: req.user._id,
+      $or: [
+        { invitation: invitation._id },
+        { project: invitation.project, type: 'invitation' },
+      ],
     });
+
+    for (const notif of relatedNotifs) {
+      notif.isRead = true;
+      if (notif.text && notif.text.includes('Please accept or decline')) {
+        notif.text = notif.text.replace(/\s*Please accept or decline the invitation\.?/gi, '').trim();
+      }
+      await notif.save();
+    }
+
+    if (wasPending) {
+      // Notify the inviter
+      const { createNotification } = require('./notification.controller');
+      await createNotification({
+        recipient: invitation.invitedBy,
+        sender: req.user._id,
+        type: 'system',
+        project: invitation.project,
+        text: `accepted your invitation to join "${project.name}"!`,
+      });
+
+      // Notify other admins of the project
+      const otherAdmins = await ProjectMember.find({
+        project: invitation.project,
+        role: 'admin',
+        user: { $nin: [req.user._id, invitation.invitedBy] },
+      }).select('user');
+
+      for (const adm of otherAdmins) {
+        await createNotification({
+          recipient: adm.user,
+          sender: req.user._id,
+          type: 'system',
+          project: invitation.project,
+          text: `joined "${project.name}" as a ${invitation.role || 'member'}.`,
+        });
+      }
+    }
 
     res.json({
       success: true,
@@ -689,6 +840,143 @@ exports.declineInvitation = async (req, res) => {
   } catch (err) {
     console.error('Decline invitation error:', err);
     res.status(500).json({ success: false, message: 'Failed to decline invitation' });
+  }
+};
+
+/**
+ * GET /api/projects/sent-invitations
+ * Get all pending invitations sent by the current user or for projects they admin.
+ */
+exports.getMySentInvitations = async (req, res) => {
+  try {
+    const adminMemberships = await ProjectMember.find({
+      user: req.user._id,
+      role: 'admin',
+    }).select('project');
+    const adminProjectIds = adminMemberships.map((m) => m.project);
+
+    const invitations = await ProjectInvitation.find({
+      $or: [
+        { invitedBy: req.user._id },
+        { project: { $in: adminProjectIds } },
+      ],
+      status: 'pending',
+    })
+      .populate('project', 'name color description')
+      .populate('user', 'name email avatar')
+      .populate('invitedBy', 'name email avatar')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json({ success: true, invitations });
+  } catch (err) {
+    console.error('Fetch sent invitations error:', err);
+    res.status(500).json({ success: false, message: 'Failed to fetch sent invitations' });
+  }
+};
+
+/**
+ * GET /api/projects/:id/invitations
+ * Get all pending invitations for a specific project. Admin only.
+ */
+exports.getProjectInvitations = async (req, res) => {
+  try {
+    const membership = await getMembership(req.params.id, req.user._id);
+    if (!membership || membership.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+
+    const invitations = await ProjectInvitation.find({
+      project: req.params.id,
+      status: 'pending',
+    })
+      .populate('user', 'name email avatar')
+      .populate('invitedBy', 'name email avatar')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json({ success: true, invitations });
+  } catch (err) {
+    console.error('Fetch project invitations error:', err);
+    res.status(500).json({ success: false, message: 'Failed to fetch project invitations' });
+  }
+};
+
+/**
+ * DELETE /api/projects/invitations/:id
+ * Revoke / cancel a sent pending invitation. Admin or inviter only.
+ */
+exports.cancelInvitation = async (req, res) => {
+  try {
+    const invitation = await ProjectInvitation.findById(req.params.id);
+    if (!invitation) {
+      return res.status(404).json({ success: false, message: 'Invitation not found' });
+    }
+
+    const isInviter = invitation.invitedBy.toString() === req.user._id.toString();
+    const membership = await getMembership(invitation.project, req.user._id);
+    const isAdmin = membership && membership.role === 'admin';
+
+    if (!isInviter && !isAdmin) {
+      return res.status(403).json({ success: false, message: 'You are not authorized to cancel this invitation' });
+    }
+
+    await ProjectInvitation.deleteOne({ _id: invitation._id });
+
+    try {
+      const Notification = require('../models/Notification');
+      await Notification.deleteMany({
+        recipient: invitation.user,
+        invitation: invitation._id,
+      });
+    } catch (notifErr) {
+      console.error('Failed to clean up notification on invite cancel:', notifErr);
+    }
+
+    res.json({ success: true, message: 'Invitation revoked successfully' });
+  } catch (err) {
+    console.error('Cancel invitation error:', err);
+    res.status(500).json({ success: false, message: 'Failed to cancel invitation' });
+  }
+};
+
+/**
+ * POST /api/projects/invitations/:id/resend
+ * Resend reminder notification for a pending invitation.
+ */
+exports.resendInvitation = async (req, res) => {
+  try {
+    const invitation = await ProjectInvitation.findOne({
+      _id: req.params.id,
+      status: 'pending',
+    }).populate('project', 'name');
+
+    if (!invitation) {
+      return res.status(404).json({ success: false, message: 'Pending invitation not found' });
+    }
+
+    const isInviter = invitation.invitedBy.toString() === req.user._id.toString();
+    const membership = await getMembership(invitation.project, req.user._id);
+    const isAdmin = membership && membership.role === 'admin';
+
+    if (!isInviter && !isAdmin) {
+      return res.status(403).json({ success: false, message: 'You are not authorized to resend this invitation' });
+    }
+
+    const { createNotification } = require('./notification.controller');
+    await createNotification({
+      recipient: invitation.user,
+      sender: req.user._id,
+      type: 'invitation',
+      project: invitation.project._id,
+      invitation: invitation._id,
+      text: `reminded you to join "${invitation.project.name}" as a ${invitation.role}. Please accept or decline the invitation.`,
+    });
+
+    res.json({ success: true, message: 'Invitation reminder sent!' });
+  } catch (err) {
+    console.error('Resend invitation error:', err);
+    res.status(500).json({ success: false, message: 'Failed to resend invitation' });
   }
 };
 
