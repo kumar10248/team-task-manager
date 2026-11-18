@@ -7,7 +7,7 @@ import { useToast } from '@/components/Toast';
 import ConfirmModal from '@/components/ConfirmModal';
 import {
   Video, PhoneOff, Copy, Check, Maximize2, Minimize2,
-  ShieldCheck, Share2, ArrowLeft, Loader2, User, Sparkles
+  ShieldCheck, Share2, ArrowLeft, Loader2, User, Sparkles, Zap
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -26,6 +26,8 @@ export default function MeetingRoomPage() {
   const [callDuration, setCallDuration] = useState(0);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [iframeLoaded, setIframeLoaded] = useState(false);
+  const [loadingOverlayVisible, setLoadingOverlayVisible] = useState(true);
+  const [loadingOverlayOpacity, setLoadingOverlayOpacity] = useState(1);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const loadCountRef = useRef(0);
@@ -44,6 +46,39 @@ export default function MeetingRoomPage() {
       setInCall(true);
     }
   }, [user, searchParams]);
+
+  // Pre-request media device permissions on TaskForge's origin and smoothly fade out TaskForge loading overlay
+  useEffect(() => {
+    if (inCall && !meetingEnded) {
+      setLoadingOverlayVisible(true);
+      setLoadingOverlayOpacity(1);
+
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+        navigator.mediaDevices
+          .getUserMedia({ video: true, audio: true })
+          .then((stream) => {
+            // Release tracks immediately so the iframe in the background can acquire them cleanly
+            stream.getTracks().forEach((track) => track.stop());
+            setTimeout(() => {
+              setLoadingOverlayOpacity(0);
+              setTimeout(() => setLoadingOverlayVisible(false), 500);
+            }, 1800);
+          })
+          .catch(() => {
+            // Fallback timer if user dismisses or has restricted devices
+            setTimeout(() => {
+              setLoadingOverlayOpacity(0);
+              setTimeout(() => setLoadingOverlayVisible(false), 500);
+            }, 3000);
+          });
+      } else {
+        setTimeout(() => {
+          setLoadingOverlayOpacity(0);
+          setTimeout(() => setLoadingOverlayVisible(false), 500);
+        }, 2500);
+      }
+    }
+  }, [inCall, meetingEnded]);
 
   // Call duration timer
   useEffect(() => {
@@ -71,6 +106,8 @@ export default function MeetingRoomPage() {
     loadCountRef.current = 0;
     setIframeLoaded(false);
     setMeetingEnded(false);
+    setLoadingOverlayVisible(true);
+    setLoadingOverlayOpacity(1);
     setInCall(true);
   };
 
@@ -674,9 +711,20 @@ export default function MeetingRoomPage() {
       </header>
 
       {/* Main Video Conference Area */}
-      <div style={{ flex: 1, position: 'relative', width: '100%', height: 'calc(100vh - 56px)', background: '#07080c' }}>
-        {/* Loading Spinner until iframe ready */}
-        {!iframeLoaded && (
+      <div style={{ flex: 1, position: 'relative', width: '100%', height: 'calc(100vh - 56px)', background: '#0c0d12' }}>
+        <style>{`
+          @keyframes tfSpinRing {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+          @keyframes tfPulseSoft {
+            0%, 100% { opacity: 0.3; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.08); }
+          }
+        `}</style>
+
+        {/* TaskForge Branded Loading Overlay (Replaces MiroTalk loading screen & logo) */}
+        {loadingOverlayVisible && (
           <div
             style={{
               position: 'absolute',
@@ -685,15 +733,93 @@ export default function MeetingRoomPage() {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 16,
-              background: '#07080c',
-              zIndex: 5,
+              background: '#0c0d12',
+              zIndex: 30,
+              opacity: loadingOverlayOpacity,
+              transition: 'opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
+              pointerEvents: loadingOverlayOpacity === 0 ? 'none' : 'auto',
             }}
           >
-            <Loader2 className="animate-spin" size={36} color="var(--accent-primary, #6366f1)" />
-            <div style={{ fontSize: 14, color: 'var(--text-secondary, #94a3b8)' }}>
-              Connecting to TaskForge P2P mesh…
+            {/* Spinning Ring with TaskForge Logo inside */}
+            <div
+              style={{
+                position: 'relative',
+                width: 108,
+                height: 108,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: 32,
+              }}
+            >
+              {/* Outer Circular Orbit Ring */}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  borderRadius: '50%',
+                  border: '3px solid rgba(255, 255, 255, 0.08)',
+                  borderTop: '3px solid #6366f1',
+                  borderRight: '3px solid #a855f7',
+                  animation: 'tfSpinRing 1.3s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite',
+                }}
+              />
+
+              {/* Ambient Glow Aura */}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: -6,
+                  borderRadius: '50%',
+                  background: 'radial-gradient(circle, rgba(99, 102, 241, 0.25) 0%, transparent 70%)',
+                  animation: 'tfPulseSoft 2.5s ease-in-out infinite',
+                }}
+              />
+
+              {/* TaskForge Center Logo Badge */}
+              <div
+                style={{
+                  width: 54,
+                  height: 54,
+                  borderRadius: 14,
+                  background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 0 25px rgba(99, 102, 241, 0.55)',
+                  zIndex: 2,
+                }}
+              >
+                <Zap size={28} color="#fff" fill="#fff" />
+              </div>
             </div>
+
+            {/* Typography */}
+            <h2
+              style={{
+                fontFamily: 'Outfit, sans-serif',
+                fontSize: 36,
+                fontWeight: 700,
+                color: '#ffffff',
+                marginBottom: 14,
+                letterSpacing: '-0.02em',
+              }}
+            >
+              Loading
+            </h2>
+
+            <p
+              style={{
+                fontSize: 14,
+                fontFamily: 'Outfit, sans-serif',
+                color: 'rgba(255, 255, 255, 0.65)',
+                textAlign: 'center',
+                maxWidth: 340,
+                lineHeight: 1.5,
+              }}
+            >
+              Please allow the camera or microphone access to use this app.
+            </p>
           </div>
         )}
 
