@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="taskforge-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="50%" stop-color="#8b5cf6" />
+      <stop offset="100%" stop-color="#a855f7" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded card -->
+  <rect x="1" y="1" width="30" height="30" rx="7" fill="url(#taskforge-grad)" />
+
+  <!-- Subtle inner border highlight -->
+  <rect x="1.5" y="1.5" width="29" height="29" rx="6.5" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1" />
+
+  <!-- TaskForge Signature Zap (Lightning bolt) -->
+  <path d="M17.5 5 L7 17.5 H16.5 L14.5 27.5 L25 14.5 H15.5 Z" fill="#ffffff" stroke="#ffffff" stroke-width="0.8" stroke-linejoin="round" stroke-linecap="round" />
+</svg>
