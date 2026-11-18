@@ -19,6 +19,7 @@ export default function MeetingRoomPage() {
   const toast = useToast();
 
   const [inCall, setInCall] = useState(false);
+  const [meetingEnded, setMeetingEnded] = useState(false);
   const [copied, setCopied] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -27,6 +28,7 @@ export default function MeetingRoomPage() {
   const [iframeLoaded, setIframeLoaded] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const loadCountRef = useRef(0);
 
   // Set default display name from auth user or query parameter
   useEffect(() => {
@@ -45,12 +47,32 @@ export default function MeetingRoomPage() {
 
   // Call duration timer
   useEffect(() => {
-    if (!inCall) return;
+    if (!inCall || meetingEnded) return;
     const timer = setInterval(() => {
       setCallDuration((prev) => prev + 1);
     }, 1000);
     return () => clearInterval(timer);
-  }, [inCall]);
+  }, [inCall, meetingEnded]);
+
+  // Detect iframe navigation (e.g. user clicked leave inside MiroTalk)
+  const handleIframeLoad = () => {
+    loadCountRef.current += 1;
+    if (loadCountRef.current === 1) {
+      setIframeLoaded(true);
+    } else if (loadCountRef.current > 1) {
+      // The user clicked "Leave" or MiroTalk navigated to its rating/newcall page!
+      // Immediately unmount the iframe and show TaskForge's clean Meeting Ended summary!
+      setInCall(false);
+      setMeetingEnded(true);
+    }
+  };
+
+  const handleRejoin = () => {
+    loadCountRef.current = 0;
+    setIframeLoaded(false);
+    setMeetingEnded(false);
+    setInCall(true);
+  };
 
   // Format call duration MM:SS or HH:MM:SS
   const formatDuration = (secs: number) => {
@@ -93,11 +115,8 @@ export default function MeetingRoomPage() {
   const handleLeaveMeeting = () => {
     setShowLeaveConfirm(false);
     toast('You have left the meeting', 'success');
-    if (window.history.length > 1) {
-      router.back();
-    } else {
-      router.push('/meetings');
-    }
+    setInCall(false);
+    setMeetingEnded(true);
   };
 
   // Construct MiroTalk P2P embedded URL
@@ -116,6 +135,151 @@ export default function MeetingRoomPage() {
     return (
       <div style={{ minHeight: '100vh', background: '#0a0a10', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Loader2 className="animate-spin" size={32} color="var(--accent-primary, #6366f1)" />
+      </div>
+    );
+  }
+
+  // Meeting Ended Summary Screen (shown when user leaves call)
+  if (meetingEnded) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          background: 'radial-gradient(ellipse at 50% 20%, rgba(99, 102, 241, 0.12), transparent 70%), #090a10',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 24,
+          fontFamily: 'Outfit, sans-serif',
+          color: '#fff',
+        }}
+      >
+        <div
+          style={{
+            width: '100%',
+            maxWidth: 480,
+            background: 'rgba(15, 16, 24, 0.85)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            backdropFilter: 'blur(30px)',
+            borderRadius: 24,
+            padding: '40px 32px',
+            boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.7)',
+            textAlign: 'center',
+          }}
+        >
+          {/* Logo Badge */}
+          <div
+            style={{
+              width: 56,
+              height: 56,
+              margin: '0 auto 20px',
+              borderRadius: 16,
+              background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 0 25px rgba(34, 197, 94, 0.4)',
+            }}
+          >
+            <Check size={28} color="#fff" strokeWidth={2.5} />
+          </div>
+
+          <h1
+            style={{
+              fontFamily: 'Fraunces, serif',
+              fontSize: 26,
+              fontWeight: 600,
+              color: 'var(--text-primary, #fff)',
+              marginBottom: 8,
+            }}
+          >
+            You Left the Meeting
+          </h1>
+          <p style={{ fontSize: 14, color: 'var(--text-secondary, #94a3b8)', marginBottom: 24 }}>
+            Thank you for participating in this TaskForge video session.
+          </p>
+
+          {/* Stats Box */}
+          <div
+            style={{
+              background: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid rgba(255, 255, 255, 0.07)',
+              borderRadius: 16,
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-around',
+              marginBottom: 28,
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--text-muted, #64748b)', letterSpacing: '0.05em', marginBottom: 4 }}>
+                Call Duration
+              </div>
+              <div style={{ fontSize: 18, fontFamily: 'monospace', fontWeight: 600, color: '#a5b4fc' }}>
+                {formatDuration(callDuration)}
+              </div>
+            </div>
+            <div style={{ width: 1, height: 32, background: 'rgba(255, 255, 255, 0.08)' }} />
+            <div>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--text-muted, #64748b)', letterSpacing: '0.05em', marginBottom: 4 }}>
+                Room ID
+              </div>
+              <div style={{ fontSize: 13, fontFamily: 'monospace', fontWeight: 500, color: '#e2e8f0', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {id}
+              </div>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <button
+              type="button"
+              onClick={handleRejoin}
+              style={{
+                width: '100%',
+                padding: '13px',
+                borderRadius: 12,
+                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                border: 'none',
+                color: '#fff',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                boxShadow: '0 0 20px rgba(99, 102, 241, 0.35)',
+              }}
+            >
+              <Video size={16} /> Rejoin Meeting
+            </button>
+
+            <button
+              type="button"
+              onClick={() => router.push('/meetings')}
+              style={{
+                width: '100%',
+                padding: '13px',
+                borderRadius: 12,
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                color: '#e2e8f0',
+                fontSize: 14,
+                fontWeight: 500,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+              }}
+            >
+              <ArrowLeft size={16} /> Return to Meetings Dashboard
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -539,7 +703,7 @@ export default function MeetingRoomPage() {
             src={mirotalkUrl}
             title="TaskForge P2P Video Meeting"
             allow="camera; microphone; speaker-selection; display-capture; fullscreen; clipboard-read; clipboard-write; web-share; autoplay; picture-in-picture"
-            onLoad={() => setIframeLoaded(true)}
+            onLoad={handleIframeLoad}
             style={{
               width: '100%',
               height: '100%',
