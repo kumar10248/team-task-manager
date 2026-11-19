@@ -3,7 +3,7 @@ const User = require('../models/User');
 /**
  * requireSuperAdmin middleware
  * Verifies that the authenticated user has isSuperAdmin === true.
- * Auto-promotes the first user if no super admin exists yet in the database.
+ * Enforces strict authorization without dynamic runtime promotion side-effects.
  */
 exports.requireSuperAdmin = async (req, res, next) => {
   try {
@@ -12,14 +12,6 @@ exports.requireSuperAdmin = async (req, res, next) => {
     }
 
     if (req.user.isSuperAdmin) {
-      return next();
-    }
-
-    // Auto-bootstrap: if no user is designated super admin yet, grant to current user
-    const count = await User.countDocuments({ isSuperAdmin: true });
-    if (count === 0) {
-      await User.findByIdAndUpdate(req.user._id, { isSuperAdmin: true });
-      req.user.isSuperAdmin = true;
       return next();
     }
 

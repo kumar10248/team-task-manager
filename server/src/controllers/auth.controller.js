@@ -6,10 +6,9 @@ const Subscription = require('../models/Subscription');
 const { checkUserSubscriptionCoverage } = require('./subscription.controller');
 const { sendPasswordResetEmail } = require('../utils/email');
 const { cloudinary, getCloudinary, isConfigured: isCloudinaryConfigured } = require('../config/cloudinary');
+const { JWT_SECRET } = require('../config/jwt');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
 
 const signToken = (userId) =>
   jwt.sign({ id: userId }, JWT_SECRET, {
@@ -37,6 +36,40 @@ const sendTokenResponse = (user, statusCode, res) => {
     user: user.toPublicJSON(),
   });
 };
+
+/**
+ * Safe Super Admin Bootstrapper
+ * Prevents race conditions and unintended privilege escalation.
+ * In production, strictly requires user.email to match INITIAL_SUPER_ADMIN_EMAIL.
+ * In development, atomically designates the earliest created user if no admin exists.
+ */
+async function bootstrapSuperAdminIfNeeded(user) {
+  if (!user || user.isSuperAdmin) return user;
+
+  const superAdminCount = await User.countDocuments({ isSuperAdmin: true });
+  if (superAdminCount > 0) return user;
+
+  const configuredAdminEmail = (process.env.INITIAL_SUPER_ADMIN_EMAIL || process.env.SUPER_ADMIN_EMAIL || '').trim().toLowerCase();
+
+  if (configuredAdminEmail) {
+    if (user.email && user.email.toLowerCase() === configuredAdminEmail) {
+      await User.findByIdAndUpdate(user._id, { isSuperAdmin: true });
+      user.isSuperAdmin = true;
+    }
+    return user;
+  }
+
+  // In local development/test only: promote first created account if no admin is configured
+  if (process.env.NODE_ENV !== 'production') {
+    const firstUser = await User.findOne().sort({ createdAt: 1 }).select('_id');
+    if (firstUser && firstUser._id.toString() === user._id.toString()) {
+      await User.findByIdAndUpdate(user._id, { isSuperAdmin: true });
+      user.isSuperAdmin = true;
+    }
+  }
+
+  return user;
+}
 
 // ─── Controllers ────────────────────────────────────────────────────────────
 
@@ -93,11 +126,8 @@ exports.login = async (req, res) => {
 
     user.lastLogin = new Date();
 
-    // Auto-bootstrap super admin: if no user is designated super admin in the system yet, promote this user
-    const superAdminCount = await User.countDocuments({ isSuperAdmin: true });
-    if (superAdminCount === 0) {
-      user.isSuperAdmin = true;
-    }
+    // Secure auto-bootstrap super admin if eligible
+    await bootstrapSuperAdminIfNeeded(user);
 
     await user.save({ validateBeforeSave: false });
 
@@ -171,13 +201,9 @@ exports.getMe = async (req, res) => {
       user = await autoClockOutIfExceeded(user);
     }
 
-    // Auto-bootstrap: if no user in system is designated super admin, designate current user
+    // Secure auto-bootstrap if eligible
     if (!user.isSuperAdmin) {
-      const superAdminCount = await User.countDocuments({ isSuperAdmin: true });
-      if (superAdminCount === 0) {
-        await User.findByIdAndUpdate(user._id, { isSuperAdmin: true });
-        user.isSuperAdmin = true;
-      }
+      await bootstrapSuperAdminIfNeeded(user);
     }
 
     const coverage = await checkUserSubscriptionCoverage(user._id);
@@ -239,6 +265,10 @@ exports.uploadAvatar = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Image data is required' });
     }
 
+    if (typeof image !== 'string' || !image.startsWith('data:image/')) {
+      return res.status(400).json({ success: false, message: 'Invalid image format. Expected a valid image data URI.' });
+    }
+
     let avatarUrl = '';
     const cl = getCloudinary();
 
@@ -253,7 +283,14 @@ exports.uploadAvatar = async (req, res) => {
       });
       avatarUrl = uploadRes.secure_url;
     } else {
-      // Seamless fallback if user hasn't added Cloudinary API keys yet
+      // Safe fallback if Cloudinary API keys are not configured: enforce 350KB max limit
+      const approxSizeInBytes = (image.length * 3) / 4;
+      if (approxSizeInBytes > 350 * 1024) {
+        return res.status(400).json({
+          success: false,
+          message: 'Avatar image exceeds 350KB limit for direct database storage. Please configure Cloudinary or upload a smaller image.',
+        });
+      }
       avatarUrl = image;
     }
 
@@ -351,6 +388,7 @@ exports.forgotPassword = async (req, res) => {
     const hashedCode = await bcrypt.hash(resetCode, 10);
     user.resetPasswordCode = hashedCode;
     user.resetPasswordExpires = expiresAt;
+    user.resetPasswordAttempts = 0; // Reset failed attempts counter on new code generation
     await user.save({ validateBeforeSave: false });
 
     // Send the password reset email
@@ -387,9 +425,12 @@ exports.forgotPassword = async (req, res) => {
   }
 };
 
+const MAX_RESET_ATTEMPTS = 5;
+
 /**
  * POST /api/auth/reset-password
  * Body: { email, code, newPassword }
+ * Protected against brute-force attacks via maximum attempt tracking & revocation.
  */
 exports.resetPassword = async (req, res) => {
   try {
@@ -402,7 +443,9 @@ exports.resetPassword = async (req, res) => {
       return res.status(400).json({ success: false, message: 'New password must be at least 6 characters' });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() }).select('+password +resetPasswordCode +resetPasswordExpires');
+    const user = await User.findOne({ email: email.toLowerCase() }).select(
+      '+password +resetPasswordCode +resetPasswordExpires +resetPasswordAttempts'
+    );
     if (!user) {
       return res.status(404).json({ success: false, message: 'No account found with that email address' });
     }
@@ -412,17 +455,53 @@ exports.resetPassword = async (req, res) => {
     }
 
     if (new Date() > new Date(user.resetPasswordExpires)) {
+      user.resetPasswordCode = undefined;
+      user.resetPasswordExpires = undefined;
+      user.resetPasswordAttempts = 0;
+      await user.save({ validateBeforeSave: false });
       return res.status(400).json({ success: false, message: 'Password reset code has expired. Please request a new one.' });
+    }
+
+    // Check if max failed attempts reached
+    if ((user.resetPasswordAttempts || 0) >= MAX_RESET_ATTEMPTS) {
+      user.resetPasswordCode = undefined;
+      user.resetPasswordExpires = undefined;
+      user.resetPasswordAttempts = 0;
+      await user.save({ validateBeforeSave: false });
+      return res.status(429).json({
+        success: false,
+        message: 'Too many incorrect verification attempts. For your security, this reset code has been revoked. Please request a new code.',
+      });
     }
 
     const isMatch = await bcrypt.compare(String(code).trim(), user.resetPasswordCode);
     if (!isMatch) {
-      return res.status(400).json({ success: false, message: 'Invalid reset code' });
+      user.resetPasswordAttempts = (user.resetPasswordAttempts || 0) + 1;
+      const attemptsLeft = Math.max(0, MAX_RESET_ATTEMPTS - user.resetPasswordAttempts);
+
+      if (attemptsLeft === 0) {
+        user.resetPasswordCode = undefined;
+        user.resetPasswordExpires = undefined;
+        user.resetPasswordAttempts = 0;
+        await user.save({ validateBeforeSave: false });
+        return res.status(429).json({
+          success: false,
+          message: 'Too many incorrect attempts. This password reset code has been revoked. Please request a new code.',
+        });
+      }
+
+      await user.save({ validateBeforeSave: false });
+      return res.status(400).json({
+        success: false,
+        message: `Invalid reset code. ${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} remaining before the code is revoked.`,
+      });
     }
 
+    // Password reset successful: update password and wipe reset token state
     user.password = newPassword;
     user.resetPasswordCode = undefined;
     user.resetPasswordExpires = undefined;
+    user.resetPasswordAttempts = 0;
     await user.save();
 
     res.json({

@@ -412,20 +412,89 @@ exports.verifyPayment = async (req, res) => {
     }
 
     const selectedPlan = PLANS[plan];
+    const razorpay = getRazorpayInstance();
+    if (!razorpay) {
+      return res.status(500).json({
+        success: false,
+        message: 'Razorpay keys not configured on server',
+      });
+    }
+
+    // Fetch genuine payment record directly from Razorpay to verify amount, order, and status
+    let paymentDetails = null;
+    try {
+      paymentDetails = await razorpay.payments.fetch(resolvedPaymentId);
+    } catch (fetchErr) {
+      console.error('Failed to fetch payment details from Razorpay:', fetchErr);
+      return res.status(400).json({
+        success: false,
+        message: 'Unable to retrieve payment record from payment gateway.',
+      });
+    }
+
+    if (!paymentDetails) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment verification failed: Record not found on payment gateway.',
+      });
+    }
+
+    // Verify order ID match
+    if (paymentDetails.order_id && paymentDetails.order_id !== resolvedOrderId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment verification failed: Payment ID does not match the order ID.',
+      });
+    }
+
+    // Verify payment status
+    if (paymentDetails.status !== 'captured' && paymentDetails.status !== 'authorized') {
+      return res.status(400).json({
+        success: false,
+        message: `Payment verification failed: Invalid status "${paymentDetails.status}".`,
+      });
+    }
+
+    // Strict amount verification: prevent price tampering
+    if (Number(paymentDetails.amount) < selectedPlan.amountInPaise) {
+      return res.status(400).json({
+        success: false,
+        message: `Payment amount tampering detected: Paid ₹${paymentDetails.amount / 100} does not cover ${selectedPlan.name} (₹${selectedPlan.price}).`,
+      });
+    }
+
+    // Replay attack prevention: verify paymentId hasn't already been used by another user
+    const existingOtherSub = await Subscription.findOne({
+      user: { $ne: req.user._id },
+      $or: [
+        { razorpayPaymentId: resolvedPaymentId },
+        { 'history.paymentId': resolvedPaymentId },
+      ],
+    });
+
+    if (existingOtherSub) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment replay detected: This transaction has already been credited to another account.',
+      });
+    }
+
+    // Idempotency check: if user already has this payment in history, return current subscription
+    const existingUserSub = await Subscription.findOne({ user: req.user._id });
+    const alreadyCredited = existingUserSub?.history?.some((h) => h.paymentId === resolvedPaymentId);
+    if (alreadyCredited) {
+      return res.status(200).json({
+        success: true,
+        message: 'Payment already verified and active.',
+        subscription: existingUserSub,
+      });
+    }
+
     const now = new Date();
     const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days access
 
     // Detect payment method (UPI, Card, Netbanking, etc.) from Razorpay API or request
-    let detectedMethod = (req.body?.payment_method || req.body?.method || 'UPI').toUpperCase();
-    const razorpay = getRazorpayInstance();
-    if (razorpay && resolvedPaymentId && !resolvedPaymentId.startsWith('pay_mock_')) {
-      try {
-        const paymentDetails = await razorpay.payments.fetch(resolvedPaymentId);
-        if (paymentDetails?.method) {
-          detectedMethod = paymentDetails.method.toUpperCase();
-        }
-      } catch {}
-    }
+    let detectedMethod = (paymentDetails.method || req.body?.payment_method || req.body?.method || 'UPI').toUpperCase();
 
     const updatedSub = await Subscription.findOneAndUpdate(
       { user: req.user._id },
@@ -506,6 +575,13 @@ exports.cancelSubscription = async (req, res) => {
  */
 exports.resetTrial = async (req, res) => {
   try {
+    if (process.env.NODE_ENV === 'production' && !req.user?.isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: Trial reset is disabled in production for non-admin accounts.',
+      });
+    }
+
     const periodEnd = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
     const updatedSub = await Subscription.findOneAndUpdate(
       { user: req.user._id },
@@ -543,6 +619,13 @@ exports.resetTrial = async (req, res) => {
  */
 exports.expireTrial = async (req, res) => {
   try {
+    if (process.env.NODE_ENV === 'production' && !req.user?.isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: Trial simulation is disabled in production for non-admin accounts.',
+      });
+    }
+
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const updatedSub = await Subscription.findOneAndUpdate(
       { user: req.user._id },
@@ -576,21 +659,42 @@ exports.expireTrial = async (req, res) => {
 
 /**
  * POST /api/subscriptions/webhook
- * Public Razorpay Webhook endpoint
+ * Public Razorpay Webhook endpoint with mandatory cryptographic signature verification
  */
 exports.handleWebhook = async (req, res) => {
   try {
-    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    const webhookSecret = (process.env.RAZORPAY_WEBHOOK_SECRET || '').trim();
     const signature = req.headers['x-razorpay-signature'];
 
-    if (webhookSecret && signature) {
-      const shasum = crypto.createHmac('sha256', webhookSecret);
-      shasum.update(JSON.stringify(req.body));
-      const digest = shasum.digest('hex');
+    // Mandatory signature header validation: prevent unauthenticated spoofing
+    if (!signature) {
+      return res.status(400).json({ status: 'rejected', message: 'Missing x-razorpay-signature header' });
+    }
 
-      if (digest !== signature) {
-        return res.status(400).json({ status: 'invalid_signature' });
-      }
+    if (!webhookSecret) {
+      console.error('[Razorpay Webhook] RAZORPAY_WEBHOOK_SECRET is not configured on the server. Rejecting webhook for security.');
+      return res.status(500).json({ status: 'error', message: 'Webhook endpoint not configured' });
+    }
+
+    // Compute HMAC-SHA256 signature on exact raw payload bytes
+    const shasum = crypto.createHmac('sha256', webhookSecret);
+    const payloadBuffer = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(req.body));
+    shasum.update(payloadBuffer);
+    const expectedSignature = shasum.digest('hex');
+
+    // Timing-safe signature comparison
+    let signaturesMatch = false;
+    try {
+      signaturesMatch = crypto.timingSafeEqual(
+        Buffer.from(expectedSignature, 'utf-8'),
+        Buffer.from(signature, 'utf-8')
+      );
+    } catch {
+      signaturesMatch = false;
+    }
+
+    if (!signaturesMatch) {
+      return res.status(400).json({ status: 'invalid_signature' });
     }
 
     const event = req.body.event;
@@ -604,6 +708,25 @@ exports.handleWebhook = async (req, res) => {
 
       if (userId && plan && PLANS[plan]) {
         const selectedPlan = PLANS[plan];
+
+        // Verify captured payment amount matches plan price
+        if (Number(payment.amount) < selectedPlan.amountInPaise) {
+          console.warn(`[Razorpay Webhook] Amount mismatch: Paid ${payment.amount} < required ${selectedPlan.amountInPaise}`);
+          return res.status(400).json({ status: 'amount_mismatch' });
+        }
+
+        // Replay / idempotency check: don't double process already credited payment
+        const existingSub = await Subscription.findOne({
+          $or: [
+            { razorpayPaymentId: payment.id },
+            { 'history.paymentId': payment.id },
+          ],
+        });
+
+        if (existingSub) {
+          return res.status(200).json({ status: 'already_processed' });
+        }
+
         const now = new Date();
         const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 

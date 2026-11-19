@@ -3,8 +3,10 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 const compression = require('compression');
+const { globalApiLimiter } = require('./src/middleware/rateLimit.middleware');
  
 const authRoutes = require('./src/routes/auth.route');
 const projectRoutes = require('./src/routes/project.route');
@@ -19,6 +21,10 @@ const intakeRoutes = require('./src/routes/intake.route');
 const app = express();
  
 // ─── Middleware ──────────────────────────────────────────────────────────────
+app.use(helmet({
+  contentSecurityPolicy: false, // Managed by client / reverse proxy to allow WebRTC & external media
+  crossOriginEmbedderPolicy: false,
+}));
 app.use(compression());
 
 const allowedOrigins = [
@@ -29,16 +35,28 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+    if (
+      !origin ||
+      allowedOrigins.includes(origin) ||
+      (process.env.NODE_ENV !== 'production' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin))
+    ) {
       return callback(null, true);
     }
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-razorpay-signature'],
 }));
-app.use(express.json({ limit: '10mb' }));
+
+// Apply global rate limiting on all API routes
+app.use('/api', globalApiLimiter);
+app.use(express.json({
+  limit: '10mb',
+  verify: (req, _res, buf) => {
+    req.rawBody = buf;
+  },
+}));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
  

@@ -4,6 +4,25 @@ const Razorpay = require('razorpay');
 const Subscription = require('../models/Subscription');
 
 /**
+ * Server-authoritative plan catalog and pricing in paise & rupees.
+ * Any client-supplied amount for subscription plans is strictly overridden.
+ */
+const PLAN_PRICES = {
+  standard: {
+    id: 'standard',
+    name: 'Standard Plan',
+    paise: 200000, // ₹2,000 in paise
+    rupees: 2000,
+  },
+  pro: {
+    id: 'pro',
+    name: 'Pro Plan',
+    paise: 300000, // ₹3,000 in paise
+    rupees: 3000,
+  },
+};
+
+/**
  * Returns an instance of Razorpay, reloading environment variables if needed
  */
 const getRazorpayInstance = () => {
@@ -28,19 +47,36 @@ exports.createOrder = async (req, res) => {
   try {
     let { amount, currency = 'INR', receipt, plan, notes = {} } = req.body || {};
 
-    // If plan is provided without explicit amount in paise, resolve from known plans
-    if (!amount && plan) {
-      if (plan === 'standard') amount = 200000; // ₹2,000 in paise
-      else if (plan === 'pro') amount = 300000; // ₹3,000 in paise
-    }
+    let numericAmount = 0;
 
-    // Amount validation: must be at least 100 paise (₹1)
-    const numericAmount = Number(amount);
-    if (!amount || isNaN(numericAmount) || numericAmount < 100) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid amount. Minimum order amount must be at least 100 paise (₹1).',
-      });
+    // Strict server authority: if a subscription plan is requested, force server-side price
+    if (plan) {
+      if (!req.user?._id) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication required to initiate a subscription purchase.',
+        });
+      }
+
+      const planConfig = PLAN_PRICES[plan];
+      if (!planConfig) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid plan selected. Choose either "standard" or "pro".',
+        });
+      }
+
+      // Overwrite any client-provided amount with server-defined price
+      numericAmount = planConfig.paise;
+    } else {
+      // Ad-hoc payment: validate amount is a valid positive number >= ₹1 (100 paise)
+      numericAmount = Number(amount);
+      if (!amount || isNaN(numericAmount) || numericAmount < 100) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid amount. Minimum order amount must be at least 100 paise (₹1).',
+        });
+      }
     }
 
     const razorpay = getRazorpayInstance();
@@ -104,7 +140,7 @@ exports.createOrder = async (req, res) => {
 /**
  * POST /api/verify-payment
  * Algorithm: HMAC-SHA256(order_id + "|" + payment_id, KEY_SECRET)
- * Compare generated signature with razorpay_signature
+ * Compare generated signature with razorpay_signature and verify captured amount with Razorpay
  * Request: { razorpay_order_id | order_id, razorpay_payment_id | payment_id, razorpay_signature | signature, plan }
  */
 exports.verifyPayment = async (req, res) => {
@@ -132,6 +168,14 @@ exports.verifyPayment = async (req, res) => {
       });
     }
 
+    if (plan && !req.user?._id) {
+      return res.status(401).json({
+        success: false,
+        isPaid: false,
+        message: 'Authentication required to verify a subscription purchase.',
+      });
+    }
+
     const key_secret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
     if (!key_secret) {
       return res.status(500).json({
@@ -147,7 +191,7 @@ exports.verifyPayment = async (req, res) => {
       .update(`${resolvedOrderId}|${resolvedPaymentId}`)
       .digest('hex');
 
-    // Safe comparison
+    // Timing-safe signature comparison
     let signaturesMatch = false;
     try {
       signaturesMatch = crypto.timingSafeEqual(
@@ -166,33 +210,122 @@ exports.verifyPayment = async (req, res) => {
       });
     }
 
+    const razorpayInstance = getRazorpayInstance();
+    if (!razorpayInstance) {
+      return res.status(500).json({
+        success: false,
+        isPaid: false,
+        message: 'Razorpay client configuration missing.',
+      });
+    }
+
+    // Fetch genuine payment object directly from Razorpay to verify amount, currency, and status
+    let paymentDetails = null;
+    try {
+      paymentDetails = await razorpayInstance.payments.fetch(resolvedPaymentId);
+    } catch (fetchErr) {
+      console.error('Failed to fetch payment details from Razorpay:', fetchErr);
+      return res.status(400).json({
+        success: false,
+        isPaid: false,
+        message: 'Unable to retrieve payment record from payment gateway.',
+      });
+    }
+
+    if (!paymentDetails) {
+      return res.status(400).json({
+        success: false,
+        isPaid: false,
+        message: 'Payment verification failed: Record not found on Razorpay.',
+      });
+    }
+
+    // Validate that payment matches the order
+    if (paymentDetails.order_id && paymentDetails.order_id !== resolvedOrderId) {
+      return res.status(400).json({
+        success: false,
+        isPaid: false,
+        message: 'Payment verification failed: Payment ID does not match the order ID.',
+      });
+    }
+
+    // Validate payment status
+    if (paymentDetails.status !== 'captured' && paymentDetails.status !== 'authorized') {
+      return res.status(400).json({
+        success: false,
+        isPaid: false,
+        message: `Payment verification failed: Invalid transaction status "${paymentDetails.status}".`,
+      });
+    }
+
+    // If purchasing a plan, verify the paid amount strictly matches the plan price
+    let planConfig = null;
+    if (plan) {
+      planConfig = PLAN_PRICES[plan];
+      if (!planConfig) {
+        return res.status(400).json({
+          success: false,
+          isPaid: false,
+          message: 'Invalid plan selected.',
+        });
+      }
+
+      if (Number(paymentDetails.amount) < planConfig.paise) {
+        return res.status(400).json({
+          success: false,
+          isPaid: false,
+          message: `Payment amount tampering detected: Paid ₹${paymentDetails.amount / 100} does not cover ${planConfig.name} (₹${planConfig.rupees}).`,
+        });
+      }
+    }
+
+    // Replay attack prevention: verify paymentId hasn't already been used by another user
+    if (req.user?._id) {
+      const existingOtherSub = await Subscription.findOne({
+        user: { $ne: req.user._id },
+        $or: [
+          { razorpayPaymentId: resolvedPaymentId },
+          { 'history.paymentId': resolvedPaymentId },
+        ],
+      });
+
+      if (existingOtherSub) {
+        return res.status(400).json({
+          success: false,
+          isPaid: false,
+          message: 'Payment replay detected: This transaction has already been credited to another account.',
+        });
+      }
+
+      // Idempotency check: if user already has this payment in history, return current status
+      const existingUserSub = await Subscription.findOne({ user: req.user._id });
+      const alreadyCredited = existingUserSub?.history?.some((h) => h.paymentId === resolvedPaymentId);
+      if (alreadyCredited) {
+        return res.status(200).json({
+          success: true,
+          isPaid: true,
+          message: 'Payment already verified and active.',
+          order_id: resolvedOrderId,
+          payment_id: resolvedPaymentId,
+          subscription: existingUserSub,
+        });
+      }
+    }
+
     // If an authenticated user is paying for a plan, activate subscription
     let updatedSub = null;
-    if (req.user?._id) {
+    if (req.user?._id && planConfig) {
       const now = new Date();
       const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-      const planName = plan === 'pro' ? 'Pro Plan' : plan === 'standard' ? 'Standard Plan' : 'Subscription';
-      const planPrice = plan === 'pro' ? 3000 : plan === 'standard' ? 2000 : 0;
-
-      // Detect payment method (UPI, Card, Netbanking, etc.) from Razorpay API or request
-      let detectedMethod = (req.body?.payment_method || req.body?.method || 'UPI').toUpperCase();
-      const razorpayInstance = getRazorpayInstance();
-      if (razorpayInstance && resolvedPaymentId && !resolvedPaymentId.startsWith('pay_mock_') && !resolvedPaymentId.startsWith('pay_test_')) {
-        try {
-          const paymentDetails = await razorpayInstance.payments.fetch(resolvedPaymentId);
-          if (paymentDetails?.method) {
-            detectedMethod = paymentDetails.method.toUpperCase();
-          }
-        } catch {}
-      }
+      const detectedMethod = (paymentDetails.method || req.body?.payment_method || req.body?.method || 'UPI').toUpperCase();
 
       updatedSub = await Subscription.findOneAndUpdate(
         { user: req.user._id },
         {
           user: req.user._id,
-          ...(plan ? { plan } : {}),
+          plan: planConfig.id,
           status: 'active',
-          amount: planPrice,
+          amount: planConfig.rupees,
           currency: 'INR',
           billingCycle: 'monthly',
           currentPeriodStart: now,
@@ -204,8 +337,8 @@ exports.verifyPayment = async (req, res) => {
             history: {
               paymentId: resolvedPaymentId,
               orderId: resolvedOrderId,
-              amount: planPrice,
-              plan: planName,
+              amount: planConfig.rupees,
+              plan: planConfig.name,
               paidAt: now,
               gateway: 'Razorpay',
               method: detectedMethod,
@@ -221,7 +354,7 @@ exports.verifyPayment = async (req, res) => {
           recipient: req.user._id,
           sender: req.user._id,
           type: 'comment',
-          text: `Payment confirmed! Transaction ID: ${resolvedPaymentId}. Subscription active for 30 days.`,
+          text: `Payment confirmed! Transaction ID: ${resolvedPaymentId}. ${planConfig.name} active for 30 days.`,
         });
       } catch {}
     }

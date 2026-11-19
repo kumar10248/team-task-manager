@@ -343,12 +343,35 @@ exports.updateUserSubscription = async (req, res) => {
 
 /**
  * PATCH /api/admin/users/:id/role
- * Toggle Super Admin privileges for a user
+ * Toggle Super Admin privileges for a user with safeguards against demoting the last super admin.
  */
 exports.toggleSuperAdmin = async (req, res) => {
   try {
     const { id } = req.params;
     const { isSuperAdmin } = req.body;
+
+    // Guard against removing the last Super Admin
+    if (!isSuperAdmin) {
+      const targetUser = await User.findById(id);
+      if (!targetUser) return res.status(404).json({ success: false, message: 'User not found' });
+
+      if (targetUser.isSuperAdmin) {
+        const superAdminCount = await User.countDocuments({ isSuperAdmin: true });
+        if (superAdminCount <= 1) {
+          return res.status(400).json({
+            success: false,
+            message: 'Cannot demote the last remaining Super Admin in the system.',
+          });
+        }
+
+        if (id.toString() === req.user._id.toString()) {
+          return res.status(400).json({
+            success: false,
+            message: 'For security, you cannot remove your own Super Admin privileges.',
+          });
+        }
+      }
+    }
 
     const user = await User.findByIdAndUpdate(
       id,

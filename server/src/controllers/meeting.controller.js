@@ -268,8 +268,61 @@ exports.getTeammates = async (req, res) => {
 };
 
 /**
+ * Helper to determine user access permissions for a meeting.
+ * Evaluates host status, project admin role, participation, and workspace membership.
+ */
+async function getMeetingAccess(meeting, userId, isSuperAdmin) {
+  if (isSuperAdmin) {
+    return { canView: true, canManage: true, isHost: true };
+  }
+
+  const userIdStr = userId.toString();
+  const createdById = meeting.createdBy?._id
+    ? meeting.createdBy._id.toString()
+    : meeting.createdBy?.toString();
+  const isHost = Boolean(createdById && createdById === userIdStr);
+
+  // Check if user is in participants list
+  const isParticipant = Array.isArray(meeting.participants) &&
+    meeting.participants.some((p) => {
+      const pid = p?._id ? p._id.toString() : p?.toString();
+      return pid === userIdStr;
+    });
+
+  let isProjectMember = false;
+  let isProjectAdmin = false;
+
+  const projectId = meeting.project?._id
+    ? meeting.project._id
+    : meeting.project;
+
+  if (projectId) {
+    const membership = await ProjectMember.findOne({
+      project: projectId,
+      user: userId,
+    }).lean();
+
+    if (membership) {
+      isProjectMember = true;
+      if (membership.role === 'admin') {
+        isProjectAdmin = true;
+      }
+    }
+  } else {
+    // Workspace-level meeting (not tied to a specific project)
+    const hasAnyMembership = await ProjectMember.exists({ user: userId });
+    isProjectMember = Boolean(hasAnyMembership || isHost || isParticipant);
+  }
+
+  const canManage = isHost || isProjectAdmin;
+  const canView = isHost || isParticipant || isProjectMember;
+
+  return { canView, canManage, isHost, isParticipant, isProjectAdmin };
+}
+
+/**
  * GET /api/meetings/:id
- * Get single meeting details.
+ * Get single meeting details with strict BOLA authorization check.
  */
 exports.getMeeting = async (req, res) => {
   try {
@@ -282,15 +335,24 @@ exports.getMeeting = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Meeting not found' });
     }
 
+    const access = await getMeetingAccess(meeting, req.user._id, req.user.isSuperAdmin);
+    if (!access.canView) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: You do not have permission to view this meeting',
+      });
+    }
+
     res.json({ success: true, meeting });
   } catch (err) {
+    console.error('Failed to fetch meeting:', err);
     res.status(500).json({ success: false, message: 'Failed to fetch meeting' });
   }
 };
 
 /**
  * PATCH /api/meetings/:id
- * Update meeting details or agenda items.
+ * Update meeting details or agenda items with role-based BOLA protection.
  */
 exports.updateMeeting = async (req, res) => {
   try {
@@ -299,12 +361,43 @@ exports.updateMeeting = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Meeting not found' });
     }
 
+    const access = await getMeetingAccess(meeting, req.user._id, req.user.isSuperAdmin);
+    if (!access.canView) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: You are not authorized to update this meeting',
+      });
+    }
+
+    const restrictedFields = ['title', 'description', 'startTime', 'endTime', 'meetLink', 'participants'];
+    const hasRestrictedUpdates = restrictedFields.some((field) => req.body[field] !== undefined);
+
+    // Only host, project admin, or super admin can update core meeting configuration
+    if (hasRestrictedUpdates && !access.canManage) {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: Only the meeting host or a project admin can modify meeting details or participants',
+      });
+    }
+
+    // Apply allowed updates
     const allowed = ['title', 'description', 'startTime', 'endTime', 'meetLink', 'status', 'agenda', 'participants'];
-    allowed.forEach((field) => {
+    for (const field of allowed) {
       if (req.body[field] !== undefined) {
-        meeting[field] = req.body[field];
+        if (field === 'meetLink') {
+          let link = String(req.body.meetLink).trim();
+          if (link && !link.startsWith('http://') && !link.startsWith('https://') && !link.startsWith('/')) {
+            link = `https://${link}`;
+          }
+          if (/^(javascript|data|vbscript):/i.test(link)) {
+            return res.status(400).json({ success: false, message: 'Invalid meeting link URL protocol' });
+          }
+          meeting.meetLink = link;
+        } else {
+          meeting[field] = req.body[field];
+        }
       }
-    });
+    }
 
     await meeting.save();
 
@@ -315,13 +408,14 @@ exports.updateMeeting = async (req, res) => {
 
     res.json({ success: true, meeting: populated });
   } catch (err) {
+    console.error('Failed to update meeting:', err);
     res.status(500).json({ success: false, message: 'Failed to update meeting' });
   }
 };
 
 /**
  * DELETE /api/meetings/:id
- * Delete / cancel a meeting.
+ * Delete / cancel a meeting with strict BOLA authorization check.
  */
 exports.deleteMeeting = async (req, res) => {
   try {
@@ -330,9 +424,18 @@ exports.deleteMeeting = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Meeting not found' });
     }
 
+    const access = await getMeetingAccess(meeting, req.user._id, req.user.isSuperAdmin);
+    if (!access.canManage) {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: Only the meeting host or a project admin can delete this meeting',
+      });
+    }
+
     await Meeting.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Meeting deleted successfully' });
   } catch (err) {
+    console.error('Failed to delete meeting:', err);
     res.status(500).json({ success: false, message: 'Failed to delete meeting' });
   }
 };

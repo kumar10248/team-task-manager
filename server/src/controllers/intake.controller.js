@@ -47,28 +47,47 @@ exports.submitPublicTicket = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Project not found' });
     }
 
-    const { title, description, clientName, clientEmail, company, priority, category } = req.body;
+    // Bot honeypot check: reject automated bot scrapers silently
+    if (req.body.website_url || req.body.hp_field) {
+      return res.status(200).json({
+        success: true,
+        message: 'Ticket submitted successfully! Our team will review your request.',
+      });
+    }
 
-    if (!title || !title.trim()) {
-      return res.status(400).json({ success: false, message: 'Ticket subject is required' });
+    const { title, description, clientName, clientEmail, company, priority, category } = req.body || {};
+
+    const trimmedTitle = String(title || '').trim();
+    const trimmedDesc = String(description || '').trim();
+    const trimmedName = String(clientName || '').trim();
+    const trimmedEmail = String(clientEmail || '').trim().toLowerCase();
+    const trimmedCompany = String(company || '').trim();
+
+    if (!trimmedTitle || trimmedTitle.length > 200) {
+      return res.status(400).json({ success: false, message: 'Ticket subject is required and cannot exceed 200 characters' });
     }
-    if (!description || !description.trim()) {
-      return res.status(400).json({ success: false, message: 'Ticket description is required' });
+    if (!trimmedDesc || trimmedDesc.length > 5000) {
+      return res.status(400).json({ success: false, message: 'Ticket description is required and cannot exceed 5,000 characters' });
     }
-    if (!clientName || !clientName.trim()) {
-      return res.status(400).json({ success: false, message: 'Your name is required' });
+    if (!trimmedName || trimmedName.length > 100) {
+      return res.status(400).json({ success: false, message: 'Your name is required and cannot exceed 100 characters' });
     }
-    if (!clientEmail || !clientEmail.trim()) {
-      return res.status(400).json({ success: false, message: 'Your email address is required' });
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!trimmedEmail || trimmedEmail.length > 150 || !emailRegex.test(trimmedEmail)) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid email address (maximum 150 characters)' });
+    }
+    if (trimmedCompany.length > 150) {
+      return res.status(400).json({ success: false, message: 'Company name cannot exceed 150 characters' });
     }
 
     const ticket = await IntakeTicket.create({
-      title: title.trim(),
-      description: description.trim(),
+      title: trimmedTitle,
+      description: trimmedDesc,
       project: projectId,
-      clientName: clientName.trim(),
-      clientEmail: clientEmail.trim().toLowerCase(),
-      company: company ? company.trim() : '',
+      clientName: trimmedName,
+      clientEmail: trimmedEmail,
+      company: trimmedCompany,
       priority: priority && ['low', 'medium', 'high', 'urgent'].includes(priority) ? priority : 'medium',
       category: category && ['feature_request', 'bug_report', 'inquiry', 'support'].includes(category) ? category : 'feature_request',
       status: 'pending_review',
